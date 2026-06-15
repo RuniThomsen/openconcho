@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { applyTheme, getStoredTheme, type Theme } from "@/lib/theme";
+import { applyTheme, getStoredTheme, nextTheme, type Theme } from "@/lib/theme";
 
 export function useTheme() {
 	const [theme, setTheme] = useState<Theme>(() => getStoredTheme());
@@ -9,7 +9,7 @@ export function useTheme() {
 	}, [theme]);
 
 	function toggle() {
-		setTheme((t) => (t === "dark" ? "light" : "dark"));
+		setTheme((t) => nextTheme(t));
 	}
 
 	return { theme, toggle };

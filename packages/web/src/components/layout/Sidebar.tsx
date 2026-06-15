@@ -15,6 +15,7 @@ import {
 	MessageSquare,
 	Moon,
 	MoonStar,
+	Palette,
 	Settings,
 	Sun,
 	Users,
@@ -28,6 +29,7 @@ import { useInstances } from "@/hooks/useInstances";
 import { useMetadata } from "@/hooks/useMetadata";
 import { useTheme } from "@/hooks/useTheme";
 import { COLOR } from "@/lib/constants";
+import { nextTheme, themeLabel } from "@/lib/theme";
 
 const TOP_NAV = [
 	{ to: "/" as const, label: "Dashboard", icon: LayoutDashboard, exact: true },
@@ -382,13 +384,15 @@ export function Sidebar() {
 						onClick={toggle}
 						className="w-7 h-7 rounded-md flex items-center justify-center transition-colors"
 						style={{
-							background: "var(--surface)",
-							border: "1px solid var(--border)",
-							color: "var(--text-3)",
+							background: theme === "runi" ? "var(--accent-dim)" : "var(--surface)",
+							border: `1px solid ${theme === "runi" ? "var(--accent-border)" : "var(--border)"}`,
+							color: theme === "runi" ? "var(--accent-text)" : "var(--text-3)",
 						}}
-						title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+						title={`Theme: ${themeLabel(theme)}. Switch to ${themeLabel(nextTheme(theme))} mode`}
 					>
-						{theme === "dark" ? (
+						{theme === "runi" ? (
+							<Palette className="w-3.5 h-3.5" strokeWidth={1.5} />
+						) : theme === "dark" ? (
 							<Sun className="w-3.5 h-3.5" strokeWidth={1.5} />
 						) : (
 							<Moon className="w-3.5 h-3.5" strokeWidth={1.5} />

@@ -27,6 +27,40 @@
 
 /* ─── Theme tokens ─── */
 :root,
+[data-theme="runi"] {
+	color-scheme: light;
+	--bg: #f6f3ea;
+	--bg-2: #fffdf8;
+	--bg-3: #efebdf;
+	--surface: rgba(17, 18, 20, 0.035);
+	--border: rgba(17, 18, 20, 0.1);
+	--border-2: rgba(17, 18, 20, 0.16);
+	--text-1: #111214;
+	--text-2: #2c3138;
+	--text-3: #6f747d;
+	--text-4: #8d9299;
+	--accent: #0b1320;
+	--accent-text: #0b1320;
+	--accent-soft: #7a1c17;
+	--accent-dim: rgba(11, 19, 32, 0.075);
+	--accent-dim-hover: rgba(11, 19, 32, 0.11);
+	--accent-subtle: rgba(122, 28, 23, 0.08);
+	--accent-muted: #7a1c17;
+	--accent-glow: rgba(122, 28, 23, 0.22);
+	--accent-border: rgba(11, 19, 32, 0.18);
+	--accent-border-strong: rgba(11, 19, 32, 0.32);
+	--accent-spinner-track: rgba(11, 19, 32, 0.18);
+	--dim-text: #6f747d;
+	--dim-icon: rgba(44, 49, 56, 0.58);
+	--card-base-bg: rgba(17, 18, 20, 0.035);
+	--card-base-border: rgba(17, 18, 20, 0.1);
+	--sidebar-bg: linear-gradient(180deg, #fffdf8 0%, #efebdf 100%);
+	--grid-line: rgba(11, 19, 32, 0.035);
+	--glow: rgba(122, 28, 23, 0.055);
+	--scrollbar: rgba(11, 19, 32, 0.18);
+	--card-hover: rgba(11, 19, 32, 0.055);
+}
+
 [data-theme="dark"] {
 	color-scheme: dark;
 	--bg: #0b0d12;
