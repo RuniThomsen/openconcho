@@ -59,6 +59,7 @@
 	--glow: rgba(122, 28, 23, 0.055);
 	--scrollbar: rgba(11, 19, 32, 0.18);
 	--card-hover: rgba(11, 19, 32, 0.055);
+	--brand-logo-filter: brightness(0);
 }
 
 [data-theme="dark"] {
@@ -93,6 +94,7 @@
 	--glow: rgba(99, 102, 241, 0.1);
 	--scrollbar: rgba(99, 102, 241, 0.2);
 	--card-hover: rgba(129, 140, 248, 0.12);
+	--brand-logo-filter: none;
 }
 
 [data-theme="light"] {
@@ -127,6 +129,7 @@
 	--glow: rgba(79, 70, 229, 0.06);
 	--scrollbar: rgba(79, 70, 229, 0.2);
 	--card-hover: rgba(79, 70, 229, 0.04);
+	--brand-logo-filter: brightness(0);
 }
 
 /* ─── Base ─── */

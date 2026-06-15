@@ -133,11 +133,11 @@ export function Sidebar() {
 			<div className="px-3 sm:px-5 py-5" style={{ borderBottom: "1px solid var(--border)" }}>
 				<div className="flex items-center gap-2.5 justify-center sm:justify-start">
 					<img
-						src="/runi-logo.svg"
+						src="/runi-logo.png"
 						alt="Runi"
 						className="w-7 h-7 rounded-lg shrink-0"
 						style={{
-							background: "#F6F3EA",
+							filter: "var(--brand-logo-filter)",
 							boxShadow: `0 0 16px ${COLOR.accentGlow}`,
 						}}
 					/>

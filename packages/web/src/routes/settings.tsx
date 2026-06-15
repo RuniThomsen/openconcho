@@ -25,11 +25,11 @@ function SettingsPage() {
 			>
 				<div className="mb-8 text-center">
 					<img
-						src="/runi-logo.svg"
+						src="/runi-logo.png"
 						alt="Runi"
 						className="w-14 h-14 rounded-2xl mx-auto mb-4"
 						style={{
-							background: "#F6F3EA",
+							filter: "var(--brand-logo-filter)",
 							boxShadow: "0 0 32px var(--accent-glow)",
 						}}
 					/>
