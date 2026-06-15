@@ -25,13 +25,16 @@ function SettingsPage() {
 			>
 				<div className="mb-8 text-center">
 					<img
-						src="/favicon.svg"
-						alt="OpenConcho"
+						src="/runi-logo.svg"
+						alt="Runi"
 						className="w-14 h-14 rounded-2xl mx-auto mb-4"
-						style={{ boxShadow: "0 0 32px rgba(99,102,241,0.35)" }}
+						style={{
+							background: "#F6F3EA",
+							boxShadow: "0 0 32px var(--accent-glow)",
+						}}
 					/>
 					<h1 className="text-2xl font-semibold tracking-tight" style={{ color: "var(--text-1)" }}>
-						OpenConcho
+						Runi Memory
 					</h1>
 					<p className="text-sm mt-1" style={{ color: "var(--text-3)" }}>
 						{isFirstRun

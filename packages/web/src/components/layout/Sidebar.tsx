@@ -133,17 +133,20 @@ export function Sidebar() {
 			<div className="px-3 sm:px-5 py-5" style={{ borderBottom: "1px solid var(--border)" }}>
 				<div className="flex items-center gap-2.5 justify-center sm:justify-start">
 					<img
-						src="/favicon.svg"
-						alt="OpenConcho"
+						src="/runi-logo.svg"
+						alt="Runi"
 						className="w-7 h-7 rounded-lg shrink-0"
-						style={{ boxShadow: `0 0 16px ${COLOR.accentGlow}` }}
+						style={{
+							background: "#F6F3EA",
+							boxShadow: `0 0 16px ${COLOR.accentGlow}`,
+						}}
 					/>
 					<div className="hidden sm:block">
 						<span
 							className="font-semibold text-sm tracking-tight"
 							style={{ color: "var(--text-1)" }}
 						>
-							OpenConcho
+							Runi Memory
 						</span>
 					</div>
 				</div>
