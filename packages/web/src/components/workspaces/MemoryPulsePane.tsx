@@ -276,8 +276,8 @@ export function MemoryPulsePane({
 			const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 			const scene = new THREE.Scene();
-			const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
-			camera.position.set(0, 0.18, 4.55);
+			const camera = new THREE.PerspectiveCamera(46, 1, 0.1, 100);
+			camera.position.set(0, 0.18, 3.55);
 			camera.lookAt(0, 0, 0);
 
 			const renderer = new THREE.WebGLRenderer({
@@ -944,9 +944,9 @@ export function MemoryPulsePane({
 				renderer.setSize(Math.max(width, 1), Math.max(height, 1), false);
 				camera.aspect = Math.max(width, 1) / Math.max(height, 1);
 				const compactPane = width < 520;
-				camera.position.z = compactPane ? 5.6 : 4.55;
-				group.position.x = compactPane ? -0.16 : 0;
-				group.scale.setScalar(compactPane ? 0.9 : 1);
+				camera.position.z = compactPane ? 5 : 3.55;
+				group.position.x = compactPane ? -0.2 : 0;
+				group.scale.setScalar(compactPane ? 0.94 : 1);
 				camera.updateProjectionMatrix();
 			};
 			const observer = new ResizeObserver(resize);
