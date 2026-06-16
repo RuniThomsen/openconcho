@@ -965,7 +965,7 @@ export function MemoryPulsePane({
 				const activeWork = Math.min(modelRef.current.activeWork, 64);
 				const workPulse = 1 + Math.min(activeWork, 8) * 0.04;
 				dataBurst = reduceMotion ? 0 : Math.max(0, dataBurst - 0.012);
-				group.rotation.y = reduceMotion ? -0.34 : Math.sin(t * 0.07) * 0.2 - 0.34;
+				group.rotation.y = reduceMotion ? -0.34 : t * 0.032 - 0.34;
 				group.rotation.x = reduceMotion ? 0.18 : Math.sin(t * 0.06) * 0.06 + 0.18;
 				core.scale.setScalar(reduceMotion ? 1 : 1 + Math.sin(t * 1.25) * 0.03 * workPulse);
 				ring.rotation.z = reduceMotion ? 0 : t * 0.18;
