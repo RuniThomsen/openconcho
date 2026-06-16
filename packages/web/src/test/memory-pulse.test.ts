@@ -20,15 +20,30 @@ describe("buildMemoryPulseModel", () => {
 				conclusion("c2", "abel", "runi", 2),
 				conclusion("c3", "runi", "josh", 3),
 			],
+			sessions: [{ is_active: true }, { is_active: false }],
 			totalConclusions: 42,
+			totalSessions: 9,
+			totalWebhooks: 2,
 			activeWork: 2,
+			totalWork: 120,
 		});
 
 		expect(model.totalConclusions).toBe(42);
 		expect(model.sampledConclusions).toBe(3);
+		expect(model.totalSessions).toBe(9);
+		expect(model.activeSessions).toBe(1);
+		expect(model.totalWebhooks).toBe(2);
 		expect(model.activeWork).toBe(2);
+		expect(model.totalWork).toBe(120);
 		expect(model.nodes.map((node) => node.id)).toEqual(["runi", "abel", "josh"]);
 		expect(model.scaffoldEdges).toHaveLength(3);
+		expect(model.dimensions.map((dimension) => dimension.key)).toEqual([
+			"peers",
+			"sessions",
+			"conclusions",
+			"work",
+			"ingress",
+		]);
 		expect(model.edges).toEqual([
 			expect.objectContaining({ from: "abel", to: "runi", count: 2 }),
 			expect.objectContaining({ from: "runi", to: "josh", count: 1 }),

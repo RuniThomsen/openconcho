@@ -314,7 +314,12 @@ export function useChat(
 
 // ─── Sessions ─────────────────────────────────────────────────────────────────
 
-export function useSessions(workspaceId: string, page = 1, pageSize = 20) {
+export function useSessions(
+	workspaceId: string,
+	page = 1,
+	pageSize = 20,
+	refetchInterval?: number | false,
+) {
 	return useQuery({
 		queryKey: QK.sessions(workspaceId, page, pageSize),
 		queryFn: async () => {
@@ -331,6 +336,7 @@ export function useSessions(workspaceId: string, page = 1, pageSize = 20) {
 			return data ?? err(error);
 		},
 		enabled: Boolean(workspaceId),
+		refetchInterval,
 	});
 }
 

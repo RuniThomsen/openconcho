@@ -1,7 +1,7 @@
 import { Activity, Radio } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 import type { CatmullRomCurve3, Mesh, Object3D, Vector3 } from "three";
-import { useConclusions, usePeers } from "@/api/queries";
+import { useConclusions, usePeers, useSessions, useWebhooks } from "@/api/queries";
 import type { components } from "@/api/schema";
 import { Caption, MonoCaption, SectionHeading } from "@/components/ui/typography";
 import { useDemo } from "@/hooks/useDemo";
@@ -9,6 +9,8 @@ import { useDemo } from "@/hooks/useDemo";
 type Conclusion = components["schemas"]["Conclusion"];
 type ConclusionPage = components["schemas"]["Page_Conclusion_"];
 type PeerPage = components["schemas"]["Page_Peer_"];
+type SessionPage = components["schemas"]["Page_Session_"];
+type WebhookPage = components["schemas"]["Page_WebhookEndpoint_"];
 
 interface QueuePulse {
 	in_progress_work_units?: number;
@@ -35,26 +37,46 @@ interface ScaffoldEdge {
 	to: string;
 }
 
+interface PulseDimension {
+	key: "peers" | "sessions" | "conclusions" | "work" | "ingress";
+	label: string;
+	value: number;
+	intensity: number;
+}
+
 export interface MemoryPulseModel {
 	nodes: PulseNode[];
 	edges: PulseEdge[];
 	scaffoldEdges: ScaffoldEdge[];
+	dimensions: PulseDimension[];
 	totalConclusions: number;
 	sampledConclusions: number;
+	totalSessions: number;
+	activeSessions: number;
+	totalWebhooks: number;
 	activeWork: number;
+	totalWork: number;
 }
 
 export function buildMemoryPulseModel({
 	peerIds,
 	conclusions,
+	sessions = [],
 	totalConclusions,
+	totalSessions = sessions.length,
+	totalWebhooks = 0,
 	activeWork = 0,
+	totalWork = 0,
 	maxNodes = 24,
 }: {
 	peerIds: string[];
 	conclusions: Conclusion[];
+	sessions?: Array<{ is_active?: boolean | null }>;
 	totalConclusions: number;
+	totalSessions?: number;
+	totalWebhooks?: number;
 	activeWork?: number;
+	totalWork?: number;
 	maxNodes?: number;
 }): MemoryPulseModel {
 	const nodeCounts = new Map<string, number>();
@@ -102,14 +124,52 @@ export function buildMemoryPulseModel({
 		.filter((edge) => visible.has(edge.from) && visible.has(edge.to))
 		.sort((a, b) => b.count - a.count || b.recentness - a.recentness)
 		.slice(0, 56);
+	const activeSessions = sessions.filter((session) => session.is_active).length;
+	const dimensions: PulseDimension[] = [
+		{
+			key: "peers",
+			label: "peer field",
+			value: nodes.length,
+			intensity: Math.min(nodes.length / Math.max(maxNodes, 1), 1),
+		},
+		{
+			key: "sessions",
+			label: "sessions",
+			value: totalSessions,
+			intensity: Math.min(totalSessions / 100, 1),
+		},
+		{
+			key: "conclusions",
+			label: "conclusions",
+			value: totalConclusions,
+			intensity: Math.min(totalConclusions / 500_000, 1),
+		},
+		{
+			key: "work",
+			label: "queue",
+			value: activeWork,
+			intensity: Math.min(activeWork / 64, 1),
+		},
+		{
+			key: "ingress",
+			label: "webhooks",
+			value: totalWebhooks,
+			intensity: Math.min(totalWebhooks / 12, 1),
+		},
+	];
 
 	return {
 		nodes,
 		edges,
 		scaffoldEdges,
+		dimensions,
 		totalConclusions,
 		sampledConclusions: conclusions.length,
+		totalSessions,
+		activeSessions,
+		totalWebhooks,
 		activeWork,
+		totalWork,
 	};
 }
 
@@ -126,26 +186,46 @@ export function MemoryPulsePane({
 
 	const peerPage = peerData as PeerPage | undefined;
 	const activeWork = (queue?.pending_work_units ?? 0) + (queue?.in_progress_work_units ?? 0);
+	const liveRefetchInterval = activeWork > 0 ? 2500 : 6500;
+	const { data: sessionData } = useSessions(workspaceId, 1, 100, liveRefetchInterval);
+	const { data: webhookData } = useWebhooks(workspaceId);
 	const { data: conclusionData, isLoading } = useConclusions(
 		workspaceId,
 		{},
 		1,
 		100,
 		false,
-		activeWork > 0 ? 2500 : 6500,
+		liveRefetchInterval,
 	);
 	const conclusionPage = conclusionData as ConclusionPage | undefined;
+	const sessionPage = sessionData as SessionPage | undefined;
+	const webhookPage = webhookData as WebhookPage | undefined;
 	const conclusions = conclusionPage?.items ?? [];
+	const sessions = sessionPage?.items ?? [];
 
 	const model = useMemo(
 		() =>
 			buildMemoryPulseModel({
 				peerIds: peerPage?.items.map((peer) => peer.id) ?? [],
 				conclusions,
+				sessions,
 				totalConclusions: conclusionPage?.total ?? conclusions.length,
+				totalSessions: sessionPage?.total ?? sessions.length,
+				totalWebhooks: webhookPage?.total ?? webhookPage?.items.length ?? 0,
 				activeWork,
+				totalWork: queue?.total_work_units ?? 0,
 			}),
-		[activeWork, conclusionPage?.total, conclusions, peerPage?.items],
+		[
+			activeWork,
+			conclusionPage?.total,
+			conclusions,
+			peerPage?.items,
+			queue?.total_work_units,
+			sessionPage?.total,
+			sessions,
+			webhookPage?.items.length,
+			webhookPage?.total,
+		],
 	);
 	const modelRef = useRef(model);
 	const updateSceneRef = useRef<((nextModel: MemoryPulseModel) => void) | null>(null);
@@ -198,6 +278,8 @@ export function MemoryPulsePane({
 			group.add(activeGroup);
 			const particleGroup = new THREE.Group();
 			group.add(particleGroup);
+			const dimensionGroup = new THREE.Group();
+			group.add(dimensionGroup);
 
 			const ambient = new THREE.AmbientLight(new THREE.Color(bg), 2.1);
 			scene.add(ambient);
@@ -267,6 +349,11 @@ export function MemoryPulsePane({
 				JSON.stringify({
 					nodes: nextModel.nodes.map((node) => [node.id, node.count]),
 					edges: nextModel.edges.map((edge) => [edge.key, edge.count, edge.recentness]),
+					dimensions: nextModel.dimensions.map((dimension) => [
+						dimension.key,
+						dimension.value,
+						Number(dimension.intensity.toFixed(3)),
+					]),
 				});
 
 			const updateGraph = (nextModel: MemoryPulseModel) => {
@@ -278,6 +365,7 @@ export function MemoryPulsePane({
 				clearGraphGroup(scaffoldGroup);
 				clearGraphGroup(activeGroup);
 				clearGraphGroup(particleGroup);
+				clearGraphGroup(dimensionGroup);
 
 				const nodeMap = new Map<string, Vector3>();
 				const nodeTotal = Math.max(nextModel.nodes.length, 1);
@@ -341,6 +429,113 @@ export function MemoryPulsePane({
 						}),
 					);
 					scaffoldGroup.add(scaffold);
+				}
+
+				const dimensionPositions = new Map<PulseDimension["key"], Vector3>();
+				nextModel.dimensions.forEach((dimension, index) => {
+					const angle = (index / nextModel.dimensions.length) * Math.PI * 2 + Math.PI / 8;
+					const radius = dimension.key === "conclusions" ? 0.9 : 2.08;
+					const y =
+						dimension.key === "work"
+							? -1.08
+							: dimension.key === "sessions"
+								? 1.08
+								: Math.sin(angle) * 0.58;
+					const z =
+						dimension.key === "sessions"
+							? -0.42
+							: dimension.key === "work"
+								? 0.62
+								: Math.cos(angle) * 0.48;
+					dimensionPositions.set(dimension.key, new THREE.Vector3(Math.cos(angle) * radius, y, z));
+				});
+
+				const spokePositions: number[] = [];
+				for (const position of dimensionPositions.values()) {
+					spokePositions.push(0, 0, 0, position.x, position.y, position.z);
+				}
+				if (spokePositions.length > 0) {
+					const geometry = new THREE.BufferGeometry();
+					geometry.setAttribute("position", new THREE.Float32BufferAttribute(spokePositions, 3));
+					dimensionGroup.add(
+						new THREE.LineSegments(
+							geometry,
+							new THREE.LineBasicMaterial({
+								color: new THREE.Color(accent),
+								transparent: true,
+								opacity: 0.09,
+								depthWrite: false,
+							}),
+						),
+					);
+				}
+
+				for (const dimension of nextModel.dimensions) {
+					const position = dimensionPositions.get(dimension.key);
+					if (!position) continue;
+					const markerSize = 0.035 + dimension.intensity * 0.035;
+					const marker = new THREE.Mesh(
+						new THREE.SphereGeometry(markerSize, 18, 12),
+						new THREE.MeshBasicMaterial({
+							color: new THREE.Color(dimension.key === "work" ? accent : ink),
+							transparent: true,
+							opacity: dimension.value > 0 ? 0.62 : 0.22,
+							depthWrite: false,
+						}),
+					);
+					marker.position.copy(position);
+					dimensionGroup.add(marker);
+				}
+
+				const sessionRings = Math.min(Math.max(Math.ceil(nextModel.totalSessions / 18), 1), 5);
+				for (let index = 0; index < sessionRings; index += 1) {
+					const ringScale = 1.36 + index * 0.11;
+					const ring = new THREE.Mesh(
+						new THREE.TorusGeometry(ringScale, 0.0035, 8, 112),
+						new THREE.MeshBasicMaterial({
+							color: new THREE.Color(dim),
+							transparent: true,
+							opacity: 0.075 - index * 0.008,
+							depthWrite: false,
+						}),
+					);
+					ring.rotation.x = Math.PI / 2.55 + index * 0.08;
+					ring.rotation.y = -0.44 + index * 0.1;
+					dimensionGroup.add(ring);
+				}
+
+				const activeSessionTicks = Math.min(nextModel.activeSessions || 0, 16);
+				for (let index = 0; index < activeSessionTicks; index += 1) {
+					const angle = (index / Math.max(activeSessionTicks, 1)) * Math.PI * 2;
+					const tick = new THREE.Mesh(
+						new THREE.BoxGeometry(0.012, 0.06, 0.012),
+						new THREE.MeshBasicMaterial({
+							color: new THREE.Color(accent),
+							transparent: true,
+							opacity: 0.48,
+							depthWrite: false,
+						}),
+					);
+					tick.position.set(Math.cos(angle) * 1.72, 0.98, Math.sin(angle) * 0.56 - 0.2);
+					tick.rotation.z = -angle;
+					dimensionGroup.add(tick);
+				}
+
+				const workTicks = Math.min(Math.max(nextModel.activeWork, nextModel.totalWebhooks), 32);
+				for (let index = 0; index < workTicks; index += 1) {
+					const progress = index / Math.max(workTicks - 1, 1);
+					const tick = new THREE.Mesh(
+						new THREE.BoxGeometry(0.018, 0.07, 0.018),
+						new THREE.MeshBasicMaterial({
+							color: new THREE.Color(accent),
+							transparent: true,
+							opacity: 0.18 + progress * 0.32,
+							depthWrite: false,
+						}),
+					);
+					tick.position.set(2.14, progress * 1.78 - 0.9, 0.54);
+					tick.rotation.z = progress * Math.PI * 0.35;
+					dimensionGroup.add(tick);
 				}
 
 				const curves: Array<{ curve: CatmullRomCurve3; speed: number; strength: number }> = [];
@@ -438,6 +633,8 @@ export function MemoryPulsePane({
 				ring.rotation.z = reduceMotion ? 0 : t * 0.42;
 				scaffoldGroup.rotation.z = reduceMotion ? 0 : Math.sin(t * 0.1) * 0.03;
 				activeGroup.rotation.z = reduceMotion ? 0 : Math.cos(t * 0.12) * 0.025;
+				dimensionGroup.rotation.y = reduceMotion ? 0 : Math.sin(t * 0.08) * 0.05;
+				dimensionGroup.rotation.z = reduceMotion ? 0 : Math.cos(t * 0.11) * 0.025;
 
 				for (const { curve, particle, offset, speed } of particles) {
 					const progress = reduceMotion ? offset : (offset + t * speed) % 1;
@@ -503,7 +700,8 @@ export function MemoryPulsePane({
 
 				<div className="hidden items-center gap-2 self-end sm:flex sm:self-auto">
 					<PulseChip label="peers" value={model.nodes.length} />
-					<PulseChip label="sample" value={model.sampledConclusions} />
+					<PulseChip label="sessions" value={model.totalSessions} />
+					<PulseChip label="hooks" value={model.totalWebhooks} />
 					<PulseChip label={liveLabel} value={activeWork} accent={activeWork > 0} />
 				</div>
 			</div>
@@ -513,13 +711,15 @@ export function MemoryPulsePane({
 					<MonoCaption>{mask(workspaceId)}</MonoCaption>
 					<Caption as="p" className="mt-1 max-w-[34rem]">
 						{model.totalConclusions.toLocaleString()} conclusions;{" "}
-						{model.scaffoldEdges.length.toLocaleString()} possible peer links.
+						{model.scaffoldEdges.length.toLocaleString()} peer links;{" "}
+						{model.totalSessions.toLocaleString()} session threads.
 					</Caption>
 				</div>
 				<div className="hidden items-center gap-2 sm:flex">
 					<Activity className="h-3.5 w-3.5" style={{ color: "var(--accent)" }} strokeWidth={1.8} />
 					<MonoCaption>
-						{model.edges.length}/{model.scaffoldEdges.length} links
+						{model.edges.length}/{model.scaffoldEdges.length} links ·{" "}
+						{model.totalWork.toLocaleString()} work
 					</MonoCaption>
 				</div>
 			</div>
