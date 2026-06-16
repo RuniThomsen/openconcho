@@ -1,6 +1,6 @@
 import { Activity, Radio } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
-import type { CatmullRomCurve3, Mesh, Object3D, Vector3 } from "three";
+import type { CatmullRomCurve3, LineBasicMaterial, Mesh, Object3D, Vector3 } from "three";
 import { useConclusions, usePeers, useSessions, useWebhooks } from "@/api/queries";
 import type { components } from "@/api/schema";
 import { Caption, MonoCaption, SectionHeading } from "@/components/ui/typography";
@@ -276,6 +276,8 @@ export function MemoryPulsePane({
 			group.add(scaffoldGroup);
 			const activeGroup = new THREE.Group();
 			group.add(activeGroup);
+			const wakeGroup = new THREE.Group();
+			group.add(wakeGroup);
 			const particleGroup = new THREE.Group();
 			group.add(particleGroup);
 			const dimensionGroup = new THREE.Group();
@@ -319,6 +321,8 @@ export function MemoryPulsePane({
 				offset: number;
 				speed: number;
 			}> = [];
+			let scaffoldMaterials: LineBasicMaterial[] = [];
+			let wakeMaterials: LineBasicMaterial[] = [];
 
 			const disposeTree = (root: Object3D) => {
 				const disposedMaterials = new Set<unknown>();
@@ -361,9 +365,12 @@ export function MemoryPulsePane({
 				if (nextSignature === graphSignature) return;
 				graphSignature = nextSignature;
 				particles = [];
+				scaffoldMaterials = [];
+				wakeMaterials = [];
 				clearGraphGroup(nodeGroup);
 				clearGraphGroup(scaffoldGroup);
 				clearGraphGroup(activeGroup);
+				clearGraphGroup(wakeGroup);
 				clearGraphGroup(particleGroup);
 				clearGraphGroup(dimensionGroup);
 
@@ -409,25 +416,26 @@ export function MemoryPulsePane({
 					nodeGroup.add(halo);
 				});
 
-				const scaffoldPositions: number[] = [];
-				for (const edge of nextModel.scaffoldEdges) {
+				const scaffoldBuckets = Array.from({ length: 5 }, () => [] as number[]);
+				for (const [edgeIndex, edge] of nextModel.scaffoldEdges.entries()) {
 					const from = nodeMap.get(edge.from);
 					const to = nodeMap.get(edge.to);
 					if (!from || !to) continue;
-					scaffoldPositions.push(from.x, from.y, from.z, to.x, to.y, to.z);
+					const bucket = scaffoldBuckets[edgeIndex % scaffoldBuckets.length];
+					bucket.push(from.x, from.y, from.z, to.x, to.y, to.z);
 				}
-				if (scaffoldPositions.length > 0) {
+				for (const [bucketIndex, positions] of scaffoldBuckets.entries()) {
+					if (positions.length === 0) continue;
 					const geometry = new THREE.BufferGeometry();
-					geometry.setAttribute("position", new THREE.Float32BufferAttribute(scaffoldPositions, 3));
-					const scaffold = new THREE.LineSegments(
-						geometry,
-						new THREE.LineBasicMaterial({
-							color: new THREE.Color(dim),
-							transparent: true,
-							opacity: 0.078,
-							depthWrite: false,
-						}),
-					);
+					geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+					const material = new THREE.LineBasicMaterial({
+						color: new THREE.Color(dim),
+						transparent: true,
+						opacity: 0.052 + bucketIndex * 0.006,
+						depthWrite: false,
+					});
+					scaffoldMaterials.push(material);
+					const scaffold = new THREE.LineSegments(geometry, material);
 					scaffoldGroup.add(scaffold);
 				}
 
@@ -619,17 +627,38 @@ export function MemoryPulsePane({
 					const to = nodeMap.get(edge.to);
 					if (!from || !to) continue;
 					const lift = 0.24 + Math.min(edge.count, 24) * 0.012;
-					const mid =
-						edge.from === edge.to
-							? from
-									.clone()
-									.add(
-										new THREE.Vector3(Math.cos(edgeIndex) * 0.34, Math.sin(edgeIndex) * 0.18, 0.46),
-									)
-							: from.clone().lerp(to, 0.5);
-					mid.z += lift + Math.sin(edge.recentness) * 0.1;
-					mid.y += Math.cos(edgeIndex * 0.7) * 0.12;
-					const curve = new THREE.CatmullRomCurve3([from, mid, to], false, "centripetal");
+					let curve: CatmullRomCurve3;
+					if (edge.from === edge.to) {
+						const phase = edgeIndex * 0.86;
+						const loopRadius = 0.16 + Math.min(edge.count, 18) * 0.004;
+						const loopCenter = from
+							.clone()
+							.add(
+								new THREE.Vector3(
+									Math.cos(phase) * 0.16,
+									Math.sin(phase) * 0.12 + 0.04,
+									0.24 + lift * 0.36,
+								),
+							);
+						const loopPoints = Array.from({ length: 10 }, (_, pointIndex) => {
+							const angle = (pointIndex / 10) * Math.PI * 2;
+							return loopCenter
+								.clone()
+								.add(
+									new THREE.Vector3(
+										Math.cos(angle) * loopRadius,
+										Math.sin(angle) * loopRadius * 0.62,
+										Math.sin(angle + phase) * 0.036,
+									),
+								);
+						});
+						curve = new THREE.CatmullRomCurve3(loopPoints, true, "centripetal");
+					} else {
+						const mid = from.clone().lerp(to, 0.5);
+						mid.z += lift + Math.sin(edge.recentness) * 0.1;
+						mid.y += Math.cos(edgeIndex * 0.7) * 0.12;
+						curve = new THREE.CatmullRomCurve3([from, mid, to], false, "centripetal");
+					}
 					const strength = Math.min(edge.count, 28) / 28;
 					curves.push({
 						curve,
@@ -643,7 +672,7 @@ export function MemoryPulsePane({
 							36,
 							0.0022 + Math.min(edge.count, 22) * 0.00055,
 							6,
-							false,
+							edge.from === edge.to,
 						),
 						new THREE.MeshBasicMaterial({
 							color: new THREE.Color(edge.from === edge.to ? dim : accent),
@@ -653,6 +682,38 @@ export function MemoryPulsePane({
 						}),
 					);
 					activeGroup.add(tube);
+				}
+
+				const wakeBuckets = Array.from({ length: 3 }, () => [] as number[]);
+				const wakeNodes = [...nodeMap.values()];
+				const wakeEdges = nextModel.edges.slice(0, 14);
+				for (const [edgeIndex, edge] of wakeEdges.entries()) {
+					const from = nodeMap.get(edge.from);
+					const to = nodeMap.get(edge.to);
+					if (!from || !to || wakeNodes.length < 3) continue;
+					const endpoints = edge.from === edge.to ? [from] : [from, to];
+					for (const [endpointIndex, endpoint] of endpoints.entries()) {
+						for (let hop = 0; hop < 3; hop += 1) {
+							const targetIndex = (edgeIndex * 5 + endpointIndex * 7 + hop * 3) % wakeNodes.length;
+							const target = wakeNodes[targetIndex];
+							if (!target || target.distanceTo(endpoint) < 0.08) continue;
+							const bucket = wakeBuckets[(edgeIndex + hop) % wakeBuckets.length];
+							bucket.push(endpoint.x, endpoint.y, endpoint.z, target.x, target.y, target.z);
+						}
+					}
+				}
+				for (const [bucketIndex, positions] of wakeBuckets.entries()) {
+					if (positions.length === 0) continue;
+					const geometry = new THREE.BufferGeometry();
+					geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+					const material = new THREE.LineBasicMaterial({
+						color: new THREE.Color(accent),
+						transparent: true,
+						opacity: 0.035 + bucketIndex * 0.01,
+						depthWrite: false,
+					});
+					wakeMaterials.push(material);
+					wakeGroup.add(new THREE.LineSegments(geometry, material));
 				}
 
 				const particleMaterial = new THREE.MeshBasicMaterial({
@@ -686,6 +747,9 @@ export function MemoryPulsePane({
 				const { width, height } = parent.getBoundingClientRect();
 				renderer.setSize(Math.max(width, 1), Math.max(height, 1), false);
 				camera.aspect = Math.max(width, 1) / Math.max(height, 1);
+				const compactPane = width < 520;
+				camera.position.z = compactPane ? 6.25 : 5.15;
+				group.scale.setScalar(compactPane ? 0.82 : 1);
 				camera.updateProjectionMatrix();
 			};
 			const observer = new ResizeObserver(resize);
@@ -708,8 +772,21 @@ export function MemoryPulsePane({
 				ring.rotation.z = reduceMotion ? 0 : t * 0.18;
 				scaffoldGroup.rotation.z = reduceMotion ? 0 : Math.sin(t * 0.045) * 0.025;
 				activeGroup.rotation.z = reduceMotion ? 0 : Math.cos(t * 0.055) * 0.02;
+				wakeGroup.rotation.z = reduceMotion ? 0 : Math.sin(t * 0.06) * 0.018;
 				dimensionGroup.rotation.y = reduceMotion ? 0 : Math.sin(t * 0.04) * 0.045;
 				dimensionGroup.rotation.z = reduceMotion ? 0 : Math.cos(t * 0.05) * 0.02;
+
+				for (const [index, material] of scaffoldMaterials.entries()) {
+					material.opacity = reduceMotion
+						? 0.062
+						: 0.04 + (Math.sin(t * 0.38 + index * 1.35) + 1) * 0.026;
+				}
+				for (const [index, material] of wakeMaterials.entries()) {
+					const workLift = Math.min(modelRef.current.activeWork, 8) * 0.004;
+					material.opacity = reduceMotion
+						? 0.035 + workLift
+						: 0.025 + (Math.sin(t * 0.72 + index * 2.1) + 1) * 0.026 + workLift;
+				}
 
 				for (const { curve, particle, offset, speed } of particles) {
 					const progress = reduceMotion ? offset : (offset + t * speed) % 1;
