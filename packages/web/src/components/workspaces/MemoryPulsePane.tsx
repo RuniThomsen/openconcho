@@ -487,56 +487,131 @@ export function MemoryPulsePane({
 					dimensionGroup.add(marker);
 				}
 
-				const sessionRings = Math.min(Math.max(Math.ceil(nextModel.totalSessions / 18), 1), 5);
-				for (let index = 0; index < sessionRings; index += 1) {
-					const ringScale = 1.36 + index * 0.11;
-					const ring = new THREE.Mesh(
-						new THREE.TorusGeometry(ringScale, 0.0035, 8, 112),
+				const addGraphVertex = (
+					position: Vector3,
+					size: number,
+					color: string,
+					opacity: number,
+				) => {
+					const vertex = new THREE.Mesh(
+						new THREE.SphereGeometry(size, 14, 10),
 						new THREE.MeshBasicMaterial({
-							color: new THREE.Color(dim),
+							color: new THREE.Color(color),
 							transparent: true,
-							opacity: 0.075 - index * 0.008,
+							opacity,
 							depthWrite: false,
 						}),
 					);
-					ring.rotation.x = Math.PI / 2.55 + index * 0.08;
-					ring.rotation.y = -0.44 + index * 0.1;
-					dimensionGroup.add(ring);
-				}
+					vertex.position.copy(position);
+					dimensionGroup.add(vertex);
+					return vertex;
+				};
 
-				const activeSessionTicks = Math.min(nextModel.activeSessions || 0, 16);
-				for (let index = 0; index < activeSessionTicks; index += 1) {
-					const angle = (index / Math.max(activeSessionTicks, 1)) * Math.PI * 2;
-					const tick = new THREE.Mesh(
-						new THREE.BoxGeometry(0.012, 0.06, 0.012),
-						new THREE.MeshBasicMaterial({
-							color: new THREE.Color(accent),
-							transparent: true,
-							opacity: 0.48,
-							depthWrite: false,
-						}),
+				const addGraphEdges = (positions: number[], color: string, opacity: number) => {
+					if (positions.length === 0) return;
+					const geometry = new THREE.BufferGeometry();
+					geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+					dimensionGroup.add(
+						new THREE.LineSegments(
+							geometry,
+							new THREE.LineBasicMaterial({
+								color: new THREE.Color(color),
+								transparent: true,
+								opacity,
+								depthWrite: false,
+							}),
+						),
 					);
-					tick.position.set(Math.cos(angle) * 1.72, 0.98, Math.sin(angle) * 0.56 - 0.2);
-					tick.rotation.z = -angle;
-					dimensionGroup.add(tick);
-				}
+				};
 
-				const workTicks = Math.min(Math.max(nextModel.activeWork, nextModel.totalWebhooks), 32);
-				for (let index = 0; index < workTicks; index += 1) {
-					const progress = index / Math.max(workTicks - 1, 1);
-					const tick = new THREE.Mesh(
-						new THREE.BoxGeometry(0.018, 0.07, 0.018),
-						new THREE.MeshBasicMaterial({
-							color: new THREE.Color(accent),
-							transparent: true,
-							opacity: 0.18 + progress * 0.32,
-							depthWrite: false,
-						}),
+				const sessionVertexCount =
+					nextModel.totalSessions === 0
+						? 0
+						: Math.min(Math.max(Math.ceil(nextModel.totalSessions / 160), 10), 34);
+				const sessionVertices = Array.from({ length: sessionVertexCount }, (_, index) => {
+					const angle = (index / Math.max(sessionVertexCount, 1)) * Math.PI * 2;
+					const position = new THREE.Vector3(
+						Math.cos(angle) * 1.98,
+						0.78 + Math.sin(angle * 2.0) * 0.14,
+						Math.sin(angle) * 0.64 - 0.18,
 					);
-					tick.position.set(2.14, progress * 1.78 - 0.9, 0.54);
-					tick.rotation.z = progress * Math.PI * 0.35;
-					dimensionGroup.add(tick);
+					addGraphVertex(
+						position,
+						index < nextModel.activeSessions ? 0.024 : 0.016,
+						index < nextModel.activeSessions ? accent : dim,
+						index < nextModel.activeSessions ? 0.62 : 0.38,
+					);
+					return position;
+				});
+				const sessionEdges: number[] = [];
+				const sessionAnchor = dimensionPositions.get("sessions");
+				for (let index = 0; index < sessionVertices.length; index += 1) {
+					const current = sessionVertices[index];
+					const next = sessionVertices[(index + 1) % sessionVertices.length];
+					sessionEdges.push(current.x, current.y, current.z, next.x, next.y, next.z);
+					if (sessionAnchor && index % 5 === 0) {
+						sessionEdges.push(
+							current.x,
+							current.y,
+							current.z,
+							sessionAnchor.x,
+							sessionAnchor.y,
+							sessionAnchor.z,
+						);
+					}
 				}
+				addGraphEdges(sessionEdges, dim, 0.105);
+
+				const workVertexCount =
+					nextModel.totalWork === 0
+						? 0
+						: Math.min(Math.max(Math.ceil(Math.log10(nextModel.totalWork + 1) * 2), 5), 14);
+				const workVertices = Array.from({ length: workVertexCount }, (_, index) => {
+					const progress = index / Math.max(workVertexCount - 1, 1);
+					const position = new THREE.Vector3(
+						2.16,
+						progress * 1.72 - 0.86,
+						0.54 + Math.sin(progress * Math.PI) * 0.18,
+					);
+					addGraphVertex(position, 0.014 + progress * 0.01, accent, 0.28 + progress * 0.24);
+					return position;
+				});
+				const workEdges: number[] = [];
+				const workAnchor = dimensionPositions.get("work");
+				for (let index = 0; index < workVertices.length - 1; index += 1) {
+					const current = workVertices[index];
+					const next = workVertices[index + 1];
+					workEdges.push(current.x, current.y, current.z, next.x, next.y, next.z);
+				}
+				if (workAnchor && workVertices.length > 0) {
+					const last = workVertices[workVertices.length - 1];
+					workEdges.push(last.x, last.y, last.z, workAnchor.x, workAnchor.y, workAnchor.z);
+				}
+				addGraphEdges(workEdges, accent, nextModel.activeWork > 0 ? 0.2 : 0.11);
+
+				const ingressVertexCount = Math.min(nextModel.totalWebhooks, 8);
+				const ingressAnchor = dimensionPositions.get("ingress");
+				const ingressEdges: number[] = [];
+				for (let index = 0; index < ingressVertexCount; index += 1) {
+					const angle = (index / Math.max(ingressVertexCount, 1)) * Math.PI * 2;
+					const position = new THREE.Vector3(
+						-2.12 + Math.cos(angle) * 0.18,
+						-0.18 + Math.sin(angle) * 0.28,
+						0.5 + Math.sin(angle * 0.5) * 0.18,
+					);
+					addGraphVertex(position, 0.018, accent, 0.5);
+					if (ingressAnchor) {
+						ingressEdges.push(
+							position.x,
+							position.y,
+							position.z,
+							ingressAnchor.x,
+							ingressAnchor.y,
+							ingressAnchor.z,
+						);
+					}
+				}
+				addGraphEdges(ingressEdges, accent, 0.16);
 
 				const curves: Array<{ curve: CatmullRomCurve3; speed: number; strength: number }> = [];
 				for (const [edgeIndex, edge] of nextModel.edges.entries()) {
@@ -558,7 +633,7 @@ export function MemoryPulsePane({
 					const strength = Math.min(edge.count, 28) / 28;
 					curves.push({
 						curve,
-						speed: 0.024 + Math.min(edge.count, 24) * 0.0018,
+						speed: 0.012 + Math.min(edge.count, 24) * 0.001,
 						strength,
 					});
 
@@ -627,14 +702,14 @@ export function MemoryPulsePane({
 				frame += 1;
 				const t = frame / 60;
 				const workPulse = 1 + Math.min(modelRef.current.activeWork, 8) * 0.04;
-				group.rotation.y = reduceMotion ? -0.34 : Math.sin(t * 0.16) * 0.24 - 0.34;
-				group.rotation.x = reduceMotion ? 0.18 : Math.sin(t * 0.13) * 0.08 + 0.18;
-				core.scale.setScalar(reduceMotion ? 1 : 1 + Math.sin(t * 2.4) * 0.035 * workPulse);
-				ring.rotation.z = reduceMotion ? 0 : t * 0.42;
-				scaffoldGroup.rotation.z = reduceMotion ? 0 : Math.sin(t * 0.1) * 0.03;
-				activeGroup.rotation.z = reduceMotion ? 0 : Math.cos(t * 0.12) * 0.025;
-				dimensionGroup.rotation.y = reduceMotion ? 0 : Math.sin(t * 0.08) * 0.05;
-				dimensionGroup.rotation.z = reduceMotion ? 0 : Math.cos(t * 0.11) * 0.025;
+				group.rotation.y = reduceMotion ? -0.34 : Math.sin(t * 0.07) * 0.2 - 0.34;
+				group.rotation.x = reduceMotion ? 0.18 : Math.sin(t * 0.06) * 0.06 + 0.18;
+				core.scale.setScalar(reduceMotion ? 1 : 1 + Math.sin(t * 1.25) * 0.03 * workPulse);
+				ring.rotation.z = reduceMotion ? 0 : t * 0.18;
+				scaffoldGroup.rotation.z = reduceMotion ? 0 : Math.sin(t * 0.045) * 0.025;
+				activeGroup.rotation.z = reduceMotion ? 0 : Math.cos(t * 0.055) * 0.02;
+				dimensionGroup.rotation.y = reduceMotion ? 0 : Math.sin(t * 0.04) * 0.045;
+				dimensionGroup.rotation.z = reduceMotion ? 0 : Math.cos(t * 0.05) * 0.02;
 
 				for (const { curve, particle, offset, speed } of particles) {
 					const progress = reduceMotion ? offset : (offset + t * speed) % 1;
