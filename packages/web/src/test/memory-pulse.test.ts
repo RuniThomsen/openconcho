@@ -28,6 +28,7 @@ describe("buildMemoryPulseModel", () => {
 		expect(model.sampledConclusions).toBe(3);
 		expect(model.activeWork).toBe(2);
 		expect(model.nodes.map((node) => node.id)).toEqual(["runi", "abel", "josh"]);
+		expect(model.scaffoldEdges).toHaveLength(3);
 		expect(model.edges).toEqual([
 			expect.objectContaining({ from: "abel", to: "runi", count: 2 }),
 			expect.objectContaining({ from: "runi", to: "josh", count: 1 }),
@@ -43,6 +44,7 @@ describe("buildMemoryPulseModel", () => {
 		});
 
 		expect(model.nodes).toHaveLength(6);
+		expect(model.scaffoldEdges).toHaveLength(15);
 		expect(model.edges).toHaveLength(0);
 	});
 });

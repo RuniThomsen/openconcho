@@ -29,9 +29,16 @@ interface PulseEdge {
 	recentness: number;
 }
 
+interface ScaffoldEdge {
+	key: string;
+	from: string;
+	to: string;
+}
+
 export interface MemoryPulseModel {
 	nodes: PulseNode[];
 	edges: PulseEdge[];
+	scaffoldEdges: ScaffoldEdge[];
 	totalConclusions: number;
 	sampledConclusions: number;
 	activeWork: number;
@@ -42,7 +49,7 @@ export function buildMemoryPulseModel({
 	conclusions,
 	totalConclusions,
 	activeWork = 0,
-	maxNodes = 14,
+	maxNodes = 24,
 }: {
 	peerIds: string[];
 	conclusions: Conclusion[];
@@ -81,14 +88,25 @@ export function buildMemoryPulseModel({
 		.slice(0, maxNodes)
 		.map(([id, count]) => ({ id, count }));
 	const visible = new Set(nodes.map((node) => node.id));
+	const scaffoldEdges: ScaffoldEdge[] = [];
+	for (let i = 0; i < nodes.length; i += 1) {
+		for (let j = i + 1; j < nodes.length; j += 1) {
+			scaffoldEdges.push({
+				key: `${nodes[i].id}↔${nodes[j].id}`,
+				from: nodes[i].id,
+				to: nodes[j].id,
+			});
+		}
+	}
 	const edges = [...edgeCounts.values()]
 		.filter((edge) => visible.has(edge.from) && visible.has(edge.to))
 		.sort((a, b) => b.count - a.count || b.recentness - a.recentness)
-		.slice(0, 28);
+		.slice(0, 56);
 
 	return {
 		nodes,
 		edges,
+		scaffoldEdges,
 		totalConclusions,
 		sampledConclusions: conclusions.length,
 		activeWork,
@@ -104,13 +122,20 @@ export function MemoryPulsePane({
 }) {
 	const { mask } = useDemo();
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
-	const { data: peerData } = usePeers(workspaceId, 1, 50);
-	const { data: conclusionData, isLoading } = useConclusions(workspaceId, {}, 1, 100, false);
+	const { data: peerData } = usePeers(workspaceId, 1, 100);
 
 	const peerPage = peerData as PeerPage | undefined;
+	const activeWork = (queue?.pending_work_units ?? 0) + (queue?.in_progress_work_units ?? 0);
+	const { data: conclusionData, isLoading } = useConclusions(
+		workspaceId,
+		{},
+		1,
+		100,
+		false,
+		activeWork > 0 ? 2500 : 6500,
+	);
 	const conclusionPage = conclusionData as ConclusionPage | undefined;
 	const conclusions = conclusionPage?.items ?? [];
-	const activeWork = (queue?.pending_work_units ?? 0) + (queue?.in_progress_work_units ?? 0);
 
 	const model = useMemo(
 		() =>
@@ -144,7 +169,7 @@ export function MemoryPulsePane({
 
 			const scene = new THREE.Scene();
 			const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
-			camera.position.set(0, 0.28, 5.9);
+			camera.position.set(0, 0.18, 5.15);
 			camera.lookAt(0, 0, 0);
 
 			const renderer = new THREE.WebGLRenderer({
@@ -158,6 +183,12 @@ export function MemoryPulsePane({
 
 			const group = new THREE.Group();
 			scene.add(group);
+			const scaffoldGroup = new THREE.Group();
+			group.add(scaffoldGroup);
+			const activeGroup = new THREE.Group();
+			group.add(activeGroup);
+			const particleGroup = new THREE.Group();
+			group.add(particleGroup);
 
 			const ambient = new THREE.AmbientLight(new THREE.Color(bg), 2.1);
 			scene.add(ambient);
@@ -166,14 +197,21 @@ export function MemoryPulsePane({
 			scene.add(key);
 
 			const nodeMap = new Map<string, Vector3>();
-			const radius = model.nodes.length > 6 ? 1.54 : 1.26;
+			const nodeTotal = Math.max(model.nodes.length, 1);
+			const goldenAngle = Math.PI * (3 - Math.sqrt(5));
 			model.nodes.forEach((node, index) => {
-				const angle = (index / Math.max(model.nodes.length, 1)) * Math.PI * 2 - Math.PI / 2;
-				const z = Math.sin(angle * 2.0) * 0.35;
-				const position = new THREE.Vector3(Math.cos(angle) * radius, Math.sin(angle) * 0.72, z);
+				const progress = nodeTotal === 1 ? 0.5 : index / (nodeTotal - 1);
+				const y = 1 - progress * 2;
+				const shell = Math.sqrt(Math.max(0, 1 - y * y));
+				const angle = index * goldenAngle;
+				const position = new THREE.Vector3(
+					Math.cos(angle) * shell * 1.82,
+					y * 0.92,
+					Math.sin(angle) * shell * 0.82,
+				);
 				nodeMap.set(node.id, position);
 
-				const size = 0.055 + Math.min(node.count, 36) * 0.0026;
+				const size = 0.032 + Math.min(node.count, 42) * 0.0016;
 				const orb = new THREE.Mesh(
 					new THREE.SphereGeometry(size, 24, 16),
 					new THREE.MeshStandardMaterial({
@@ -200,6 +238,28 @@ export function MemoryPulsePane({
 				group.add(halo);
 			});
 
+			const scaffoldPositions: number[] = [];
+			for (const edge of model.scaffoldEdges) {
+				const from = nodeMap.get(edge.from);
+				const to = nodeMap.get(edge.to);
+				if (!from || !to) continue;
+				scaffoldPositions.push(from.x, from.y, from.z, to.x, to.y, to.z);
+			}
+			if (scaffoldPositions.length > 0) {
+				const geometry = new THREE.BufferGeometry();
+				geometry.setAttribute("position", new THREE.Float32BufferAttribute(scaffoldPositions, 3));
+				const scaffold = new THREE.LineSegments(
+					geometry,
+					new THREE.LineBasicMaterial({
+						color: new THREE.Color(dim),
+						transparent: true,
+						opacity: 0.078,
+						depthWrite: false,
+					}),
+				);
+				scaffoldGroup.add(scaffold);
+			}
+
 			const core = new THREE.Mesh(
 				new THREE.SphereGeometry(0.18, 40, 24),
 				new THREE.MeshStandardMaterial({
@@ -225,28 +285,40 @@ export function MemoryPulsePane({
 			ring.rotation.x = Math.PI / 2.15;
 			group.add(ring);
 
-			const curves: Array<{ curve: CatmullRomCurve3; speed: number }> = [];
-			for (const edge of model.edges) {
+			const curves: Array<{ curve: CatmullRomCurve3; speed: number; strength: number }> = [];
+			for (const [edgeIndex, edge] of model.edges.entries()) {
 				const from = nodeMap.get(edge.from);
 				const to = nodeMap.get(edge.to);
 				if (!from || !to) continue;
-				const lift = 0.42 + Math.min(edge.count, 22) * 0.012;
-				const mid = from.clone().lerp(to, 0.5);
-				mid.z += lift;
-				mid.y += Math.sin(edge.recentness) * 0.08;
+				const lift = 0.24 + Math.min(edge.count, 24) * 0.012;
+				const mid =
+					edge.from === edge.to
+						? from
+								.clone()
+								.add(
+									new THREE.Vector3(Math.cos(edgeIndex) * 0.34, Math.sin(edgeIndex) * 0.18, 0.46),
+								)
+						: from.clone().lerp(to, 0.5);
+				mid.z += lift + Math.sin(edge.recentness) * 0.1;
+				mid.y += Math.cos(edgeIndex * 0.7) * 0.12;
 				const curve = new THREE.CatmullRomCurve3([from, mid, to], false, "centripetal");
-				curves.push({ curve, speed: 0.018 + Math.min(edge.count, 18) * 0.0015 });
+				const strength = Math.min(edge.count, 28) / 28;
+				curves.push({
+					curve,
+					speed: 0.024 + Math.min(edge.count, 24) * 0.0018,
+					strength,
+				});
 
 				const tube = new THREE.Mesh(
-					new THREE.TubeGeometry(curve, 40, 0.0035 + Math.min(edge.count, 18) * 0.00075, 8, false),
+					new THREE.TubeGeometry(curve, 36, 0.0022 + Math.min(edge.count, 22) * 0.00055, 6, false),
 					new THREE.MeshBasicMaterial({
 						color: new THREE.Color(edge.from === edge.to ? dim : accent),
 						transparent: true,
-						opacity: 0.13 + Math.min(edge.count, 20) * 0.018,
+						opacity: 0.2 + Math.min(edge.count, 20) * 0.015,
 						depthWrite: false,
 					}),
 				);
-				group.add(tube);
+				activeGroup.add(tube);
 			}
 
 			const particleMaterial = new THREE.MeshBasicMaterial({
@@ -254,10 +326,19 @@ export function MemoryPulsePane({
 				transparent: true,
 				opacity: 0.82,
 			});
-			const particles = curves.slice(0, 18).map((entry, index) => {
-				const particle = new THREE.Mesh(new THREE.SphereGeometry(0.018, 12, 8), particleMaterial);
-				group.add(particle);
-				return { ...entry, particle, offset: index / Math.max(curves.length, 1) };
+			const particleCount = curves.length === 0 ? 0 : Math.min(Math.max(curves.length * 2, 18), 96);
+			const particles = Array.from({ length: particleCount }, (_, index) => {
+				const entry = curves[index % curves.length];
+				const particle = new THREE.Mesh(
+					new THREE.SphereGeometry(0.012 + entry.strength * 0.01, 12, 8),
+					particleMaterial,
+				);
+				particleGroup.add(particle);
+				return {
+					...entry,
+					particle,
+					offset: index / Math.max(particleCount, 1),
+				};
 			});
 
 			const resize = () => {
@@ -278,10 +359,12 @@ export function MemoryPulsePane({
 				frame += 1;
 				const t = frame / 60;
 				const workPulse = 1 + Math.min(model.activeWork, 8) * 0.04;
-				group.rotation.y = reduceMotion ? -0.28 : Math.sin(t * 0.18) * 0.2 - 0.28;
+				group.rotation.y = reduceMotion ? -0.34 : Math.sin(t * 0.16) * 0.24 - 0.34;
 				group.rotation.x = reduceMotion ? 0.18 : Math.sin(t * 0.13) * 0.08 + 0.18;
 				core.scale.setScalar(reduceMotion ? 1 : 1 + Math.sin(t * 2.4) * 0.035 * workPulse);
 				ring.rotation.z = reduceMotion ? 0 : t * 0.42;
+				scaffoldGroup.rotation.z = reduceMotion ? 0 : Math.sin(t * 0.1) * 0.03;
+				activeGroup.rotation.z = reduceMotion ? 0 : Math.cos(t * 0.12) * 0.025;
 
 				for (const { curve, particle, offset, speed } of particles) {
 					const progress = reduceMotion ? offset : (offset + t * speed) % 1;
@@ -352,7 +435,7 @@ export function MemoryPulsePane({
 					</div>
 				</div>
 
-				<div className="flex items-center gap-2 self-end sm:self-auto">
+				<div className="hidden items-center gap-2 self-end sm:flex sm:self-auto">
 					<PulseChip label="peers" value={model.nodes.length} />
 					<PulseChip label="sample" value={model.sampledConclusions} />
 					<PulseChip label={liveLabel} value={activeWork} accent={activeWork > 0} />
@@ -363,13 +446,15 @@ export function MemoryPulsePane({
 				<div>
 					<MonoCaption>{mask(workspaceId)}</MonoCaption>
 					<Caption as="p" className="mt-1 max-w-[34rem]">
-						{model.totalConclusions.toLocaleString()} conclusions in the workspace; latest public
-						memory atoms drive the motion.
+						{model.totalConclusions.toLocaleString()} conclusions;{" "}
+						{model.scaffoldEdges.length.toLocaleString()} possible peer links.
 					</Caption>
 				</div>
 				<div className="hidden items-center gap-2 sm:flex">
 					<Activity className="h-3.5 w-3.5" style={{ color: "var(--accent)" }} strokeWidth={1.8} />
-					<MonoCaption>{model.edges.length} arcs</MonoCaption>
+					<MonoCaption>
+						{model.edges.length}/{model.scaffoldEdges.length} links
+					</MonoCaption>
 				</div>
 			</div>
 

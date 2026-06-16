@@ -633,6 +633,7 @@ export function useConclusions(
 	page = 1,
 	pageSize = 20,
 	reverse = false,
+	refetchInterval?: number | false,
 ) {
 	return useQuery({
 		queryKey: QK.conclusions(workspaceId, filters, page, pageSize, reverse),
@@ -650,6 +651,7 @@ export function useConclusions(
 			return data ?? err(error);
 		},
 		enabled: Boolean(workspaceId),
+		refetchInterval,
 	});
 }
 
