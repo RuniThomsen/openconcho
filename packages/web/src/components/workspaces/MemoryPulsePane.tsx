@@ -1,6 +1,14 @@
 import { Activity, Radio } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
-import type { CatmullRomCurve3, LineBasicMaterial, Mesh, Object3D, Vector3 } from "three";
+import type {
+	CatmullRomCurve3,
+	LineBasicMaterial,
+	Mesh,
+	MeshBasicMaterial,
+	MeshStandardMaterial,
+	Object3D,
+	Vector3,
+} from "three";
 import { useConclusions, usePeers, useSessions, useWebhooks } from "@/api/queries";
 import type { components } from "@/api/schema";
 import { Caption, MonoCaption, SectionHeading } from "@/components/ui/typography";
@@ -314,15 +322,54 @@ export function MemoryPulsePane({
 			ring.rotation.x = Math.PI / 2.15;
 			group.add(ring);
 
+			const signalRings = Array.from({ length: 3 }, (_, index) => {
+				const material = new THREE.MeshBasicMaterial({
+					color: new THREE.Color(accent),
+					transparent: true,
+					opacity: 0.045,
+					depthWrite: false,
+				});
+				const signal = new THREE.Mesh(
+					new THREE.TorusGeometry(0.58 + index * 0.2, 0.0032, 8, 112),
+					material,
+				);
+				signal.rotation.x = Math.PI / 2.12 + index * 0.08;
+				signal.rotation.y = index * 0.32;
+				group.add(signal);
+				return { material, signal, phase: index * 1.85 };
+			});
+
 			let graphSignature = "";
+			let dataBurst = 0;
 			let particles: Array<{
 				curve: CatmullRomCurve3;
 				particle: Mesh;
 				offset: number;
 				speed: number;
 			}> = [];
+			let nodePulses: Array<{
+				halo: Mesh;
+				haloMaterial: MeshBasicMaterial;
+				intensity: number;
+				node: Mesh;
+				nodeMaterial: MeshStandardMaterial;
+				phase: number;
+			}> = [];
+			let dimensionPulses: Array<{
+				intensity: number;
+				marker: Mesh;
+				material: MeshBasicMaterial;
+				phase: number;
+			}> = [];
+			let activeMaterials: Array<{
+				baseOpacity: number;
+				material: MeshBasicMaterial;
+				phase: number;
+				strength: number;
+			}> = [];
 			let scaffoldMaterials: LineBasicMaterial[] = [];
 			let wakeMaterials: LineBasicMaterial[] = [];
+			let particleMaterial: MeshBasicMaterial | null = null;
 
 			const disposeTree = (root: Object3D) => {
 				const disposedMaterials = new Set<unknown>();
@@ -364,9 +411,14 @@ export function MemoryPulsePane({
 				const nextSignature = getGraphSignature(nextModel);
 				if (nextSignature === graphSignature) return;
 				graphSignature = nextSignature;
+				dataBurst = 1;
 				particles = [];
+				nodePulses = [];
+				dimensionPulses = [];
+				activeMaterials = [];
 				scaffoldMaterials = [];
 				wakeMaterials = [];
+				particleMaterial = null;
 				clearGraphGroup(nodeGroup);
 				clearGraphGroup(scaffoldGroup);
 				clearGraphGroup(activeGroup);
@@ -390,30 +442,35 @@ export function MemoryPulsePane({
 					nodeMap.set(node.id, position);
 
 					const size = 0.032 + Math.min(node.count, 42) * 0.0016;
-					const orb = new THREE.Mesh(
-						new THREE.SphereGeometry(size, 24, 16),
-						new THREE.MeshStandardMaterial({
-							color: new THREE.Color(ink),
-							emissive: new THREE.Color(accent),
-							emissiveIntensity: 0.08 + Math.min(node.count, 60) / 150,
-							roughness: 0.48,
-							metalness: 0.18,
-						}),
-					);
+					const intensity = Math.min(node.count / 60, 1);
+					const nodeMaterial = new THREE.MeshStandardMaterial({
+						color: new THREE.Color(ink),
+						emissive: new THREE.Color(accent),
+						emissiveIntensity: 0.08 + intensity * 0.4,
+						roughness: 0.48,
+						metalness: 0.18,
+					});
+					const orb = new THREE.Mesh(new THREE.SphereGeometry(size, 24, 16), nodeMaterial);
 					orb.position.copy(position);
 					nodeGroup.add(orb);
 
-					const halo = new THREE.Mesh(
-						new THREE.SphereGeometry(size * 2.35, 24, 16),
-						new THREE.MeshBasicMaterial({
-							color: new THREE.Color(accent),
-							transparent: true,
-							opacity: 0.045 + Math.min(node.count, 50) / 1000,
-							depthWrite: false,
-						}),
-					);
+					const haloMaterial = new THREE.MeshBasicMaterial({
+						color: new THREE.Color(accent),
+						transparent: true,
+						opacity: 0.045 + Math.min(node.count, 50) / 1000,
+						depthWrite: false,
+					});
+					const halo = new THREE.Mesh(new THREE.SphereGeometry(size * 2.35, 24, 16), haloMaterial);
 					halo.position.copy(position);
 					nodeGroup.add(halo);
+					nodePulses.push({
+						halo,
+						haloMaterial,
+						intensity,
+						node: orb,
+						nodeMaterial,
+						phase: index * 0.73,
+					});
 				});
 
 				const scaffoldBuckets = Array.from({ length: 5 }, () => [] as number[]);
@@ -482,17 +539,24 @@ export function MemoryPulsePane({
 					const position = dimensionPositions.get(dimension.key);
 					if (!position) continue;
 					const markerSize = 0.035 + dimension.intensity * 0.035;
+					const markerMaterial = new THREE.MeshBasicMaterial({
+						color: new THREE.Color(dimension.key === "work" ? accent : ink),
+						transparent: true,
+						opacity: dimension.value > 0 ? 0.62 : 0.22,
+						depthWrite: false,
+					});
 					const marker = new THREE.Mesh(
 						new THREE.SphereGeometry(markerSize, 18, 12),
-						new THREE.MeshBasicMaterial({
-							color: new THREE.Color(dimension.key === "work" ? accent : ink),
-							transparent: true,
-							opacity: dimension.value > 0 ? 0.62 : 0.22,
-							depthWrite: false,
-						}),
+						markerMaterial,
 					);
 					marker.position.copy(position);
 					dimensionGroup.add(marker);
+					dimensionPulses.push({
+						intensity: dimension.intensity,
+						marker,
+						material: markerMaterial,
+						phase: dimensionPositions.size * 0.9 + dimension.intensity,
+					});
 				}
 
 				const addGraphVertex = (
@@ -665,6 +729,13 @@ export function MemoryPulsePane({
 						speed: 0.012 + Math.min(edge.count, 24) * 0.001,
 						strength,
 					});
+					const baseOpacity = 0.2 + Math.min(edge.count, 20) * 0.015;
+					const activeMaterial = new THREE.MeshBasicMaterial({
+						color: new THREE.Color(edge.from === edge.to ? dim : accent),
+						transparent: true,
+						opacity: baseOpacity,
+						depthWrite: false,
+					});
 
 					const tube = new THREE.Mesh(
 						new THREE.TubeGeometry(
@@ -674,13 +745,14 @@ export function MemoryPulsePane({
 							6,
 							edge.from === edge.to,
 						),
-						new THREE.MeshBasicMaterial({
-							color: new THREE.Color(edge.from === edge.to ? dim : accent),
-							transparent: true,
-							opacity: 0.2 + Math.min(edge.count, 20) * 0.015,
-							depthWrite: false,
-						}),
+						activeMaterial,
 					);
+					activeMaterials.push({
+						baseOpacity,
+						material: activeMaterial,
+						phase: edgeIndex * 0.62 + edge.recentness * 0.03,
+						strength,
+					});
 					activeGroup.add(tube);
 				}
 
@@ -716,18 +788,19 @@ export function MemoryPulsePane({
 					wakeGroup.add(new THREE.LineSegments(geometry, material));
 				}
 
-				const particleMaterial = new THREE.MeshBasicMaterial({
+				const movingParticleMaterial = new THREE.MeshBasicMaterial({
 					color: new THREE.Color(accent),
 					transparent: true,
 					opacity: 0.82,
 				});
+				particleMaterial = movingParticleMaterial;
 				const particleCount =
 					curves.length === 0 ? 0 : Math.min(Math.max(curves.length * 2, 18), 96);
 				particles = Array.from({ length: particleCount }, (_, index) => {
 					const entry = curves[index % curves.length];
 					const particle = new THREE.Mesh(
 						new THREE.SphereGeometry(0.012 + entry.strength * 0.01, 12, 8),
-						particleMaterial,
+						movingParticleMaterial,
 					);
 					particleGroup.add(particle);
 					return {
@@ -765,7 +838,9 @@ export function MemoryPulsePane({
 				if (disposed) return;
 				frame += 1;
 				const t = frame / 60;
-				const workPulse = 1 + Math.min(modelRef.current.activeWork, 8) * 0.04;
+				const activeWork = Math.min(modelRef.current.activeWork, 64);
+				const workPulse = 1 + Math.min(activeWork, 8) * 0.04;
+				dataBurst = reduceMotion ? 0 : Math.max(0, dataBurst - 0.012);
 				group.rotation.y = reduceMotion ? -0.34 : Math.sin(t * 0.07) * 0.2 - 0.34;
 				group.rotation.x = reduceMotion ? 0.18 : Math.sin(t * 0.06) * 0.06 + 0.18;
 				core.scale.setScalar(reduceMotion ? 1 : 1 + Math.sin(t * 1.25) * 0.03 * workPulse);
@@ -776,16 +851,48 @@ export function MemoryPulsePane({
 				dimensionGroup.rotation.y = reduceMotion ? 0 : Math.sin(t * 0.04) * 0.045;
 				dimensionGroup.rotation.z = reduceMotion ? 0 : Math.cos(t * 0.05) * 0.02;
 
+				for (const [index, entry] of signalRings.entries()) {
+					const wave = reduceMotion ? 0 : (Math.sin(t * 0.72 + entry.phase) + 1) / 2;
+					const queueLift = activeWork / 64;
+					const burstLift = dataBurst * (0.08 - index * 0.018);
+					entry.material.opacity = 0.025 + queueLift * 0.04 + wave * 0.035 + burstLift;
+					entry.signal.scale.setScalar(reduceMotion ? 1 : 1 + wave * 0.1 + dataBurst * 0.16);
+					entry.signal.rotation.z = reduceMotion ? index * 0.2 : t * (0.08 + index * 0.018);
+				}
+
+				for (const { halo, haloMaterial, intensity, node, nodeMaterial, phase } of nodePulses) {
+					const pulse = reduceMotion ? 0 : (Math.sin(t * 0.9 + phase) + 1) / 2;
+					const scale = 1 + pulse * 0.1 * (0.35 + intensity) + dataBurst * 0.08;
+					node.scale.setScalar(scale);
+					halo.scale.setScalar(1.05 + pulse * 0.38 * (0.25 + intensity));
+					haloMaterial.opacity = 0.035 + intensity * 0.07 + pulse * 0.045 + dataBurst * 0.025;
+					nodeMaterial.emissiveIntensity = 0.08 + intensity * 0.4 + pulse * 0.14;
+				}
+
 				for (const [index, material] of scaffoldMaterials.entries()) {
 					material.opacity = reduceMotion
 						? 0.062
 						: 0.04 + (Math.sin(t * 0.38 + index * 1.35) + 1) * 0.026;
+				}
+				for (const { baseOpacity, material, phase, strength } of activeMaterials) {
+					const edgePulse = reduceMotion ? 0 : (Math.sin(t * 1.05 + phase) + 1) / 2;
+					material.opacity = baseOpacity + edgePulse * 0.1 * (0.3 + strength) + dataBurst * 0.035;
 				}
 				for (const [index, material] of wakeMaterials.entries()) {
 					const workLift = Math.min(modelRef.current.activeWork, 8) * 0.004;
 					material.opacity = reduceMotion
 						? 0.035 + workLift
 						: 0.025 + (Math.sin(t * 0.72 + index * 2.1) + 1) * 0.026 + workLift;
+				}
+				for (const { intensity, marker, material, phase } of dimensionPulses) {
+					const pulse = reduceMotion ? 0 : (Math.sin(t * 0.82 + phase) + 1) / 2;
+					marker.scale.setScalar(1 + pulse * 0.16 * (0.4 + intensity));
+					material.opacity = 0.22 + intensity * 0.42 + pulse * 0.1;
+				}
+				if (particleMaterial) {
+					particleMaterial.opacity = reduceMotion
+						? 0.68
+						: 0.68 + Math.sin(t * 1.2) * 0.12 + dataBurst * 0.12;
 				}
 
 				for (const { curve, particle, offset, speed } of particles) {
