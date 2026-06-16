@@ -7,6 +7,7 @@ import type {
 	MeshBasicMaterial,
 	MeshStandardMaterial,
 	Object3D,
+	PointsMaterial,
 	Vector3,
 } from "three";
 import { useConclusions, usePeers, useSessions, useWebhooks } from "@/api/queries";
@@ -65,6 +66,18 @@ export interface MemoryPulseModel {
 	activeWork: number;
 	totalWork: number;
 }
+
+const getMemoryFieldCounts = (
+	model: Pick<MemoryPulseModel, "totalConclusions" | "totalSessions" | "totalWork">,
+) => {
+	const magnitude = model.totalConclusions + model.totalSessions * 25 + model.totalWork * 5;
+	const fieldNodes = Math.min(
+		2400,
+		Math.max(360, Math.floor(Math.sqrt(Math.max(magnitude, 1)) * 2.1)),
+	);
+	const fieldLinks = Math.min(3600, Math.max(600, Math.floor(fieldNodes * 1.45)));
+	return { fieldLinks, fieldNodes };
+};
 
 export function buildMemoryPulseModel({
 	peerIds,
@@ -278,6 +291,8 @@ export function MemoryPulsePane({
 
 			const group = new THREE.Group();
 			scene.add(group);
+			const memoryMassGroup = new THREE.Group();
+			group.add(memoryMassGroup);
 			const nodeGroup = new THREE.Group();
 			group.add(nodeGroup);
 			const cortexGroup = new THREE.Group();
@@ -369,6 +384,8 @@ export function MemoryPulsePane({
 				phase: number;
 				strength: number;
 			}> = [];
+			let memoryMassPointMaterial: PointsMaterial | null = null;
+			let memoryMassLinkMaterials: LineBasicMaterial[] = [];
 			let cortexMaterials: Array<{
 				material: LineBasicMaterial;
 				phase: number;
@@ -412,6 +429,7 @@ export function MemoryPulsePane({
 						dimension.value,
 						Number(dimension.intensity.toFixed(3)),
 					]),
+					totals: [nextModel.totalConclusions, nextModel.totalSessions, nextModel.totalWork],
 				});
 
 			const updateGraph = (nextModel: MemoryPulseModel) => {
@@ -423,10 +441,13 @@ export function MemoryPulsePane({
 				nodePulses = [];
 				dimensionPulses = [];
 				activeMaterials = [];
+				memoryMassPointMaterial = null;
+				memoryMassLinkMaterials = [];
 				cortexMaterials = [];
 				scaffoldMaterials = [];
 				wakeMaterials = [];
 				particleMaterial = null;
+				clearGraphGroup(memoryMassGroup);
 				clearGraphGroup(nodeGroup);
 				clearGraphGroup(cortexGroup);
 				clearGraphGroup(scaffoldGroup);
@@ -483,6 +504,68 @@ export function MemoryPulsePane({
 						phase: index * 0.73,
 					});
 				});
+
+				const { fieldLinks, fieldNodes } = getMemoryFieldCounts(nextModel);
+				const memorySeed =
+					nextModel.totalConclusions * 0.0001 +
+					nextModel.totalSessions * 0.017 +
+					nextModel.totalWork * 0.0031 +
+					nodeTotal * 7.13;
+				const noise = (index: number, salt: number) => {
+					const value = Math.sin(index * 12.9898 + salt * 78.233 + memorySeed) * 43758.5453;
+					return value - Math.floor(value);
+				};
+				const massPositions = new Float32Array(fieldNodes * 3);
+				for (let index = 0; index < fieldNodes; index += 1) {
+					const side = noise(index, 1) > 0.5 ? -1 : 1;
+					const fold = noise(index, 2) * Math.PI * 1.18 - Math.PI * 0.59;
+					const depth = noise(index, 3) - 0.5;
+					const spread = Math.sqrt(noise(index, 4));
+					const taper = 0.55 + Math.cos(fold) * 0.35;
+					massPositions[index * 3] = side * (0.12 + spread * (0.58 + taper * 0.52));
+					massPositions[index * 3 + 1] = Math.sin(fold) * 0.82 + (noise(index, 5) - 0.5) * 0.18;
+					massPositions[index * 3 + 2] = depth * (0.55 + taper * 0.22);
+				}
+				const massGeometry = new THREE.BufferGeometry();
+				massGeometry.setAttribute("position", new THREE.BufferAttribute(massPositions, 3));
+				memoryMassPointMaterial = new THREE.PointsMaterial({
+					color: new THREE.Color(accent),
+					transparent: true,
+					opacity: 0.18,
+					size: 0.008,
+					sizeAttenuation: true,
+					depthWrite: false,
+				});
+				memoryMassGroup.add(new THREE.Points(massGeometry, memoryMassPointMaterial));
+
+				const massLinkBuckets = Array.from({ length: 4 }, () => [] as number[]);
+				for (let index = 0; index < fieldLinks; index += 1) {
+					const fromIndex = Math.floor(noise(index, 6) * fieldNodes);
+					const distance = 1 + Math.floor(noise(index, 7) * Math.min(fieldNodes - 1, 96));
+					const toIndex = (fromIndex + distance) % fieldNodes;
+					const bucket = massLinkBuckets[index % massLinkBuckets.length];
+					bucket.push(
+						massPositions[fromIndex * 3],
+						massPositions[fromIndex * 3 + 1],
+						massPositions[fromIndex * 3 + 2],
+						massPositions[toIndex * 3],
+						massPositions[toIndex * 3 + 1],
+						massPositions[toIndex * 3 + 2],
+					);
+				}
+				for (const [bucketIndex, positions] of massLinkBuckets.entries()) {
+					if (positions.length === 0) continue;
+					const geometry = new THREE.BufferGeometry();
+					geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+					const material = new THREE.LineBasicMaterial({
+						color: new THREE.Color(bucketIndex % 2 === 0 ? accent : dim),
+						transparent: true,
+						opacity: 0.014,
+						depthWrite: false,
+					});
+					memoryMassLinkMaterials.push(material);
+					memoryMassGroup.add(new THREE.LineSegments(geometry, material));
+				}
 
 				const cortexEdges = nextModel.scaffoldEdges.slice(
 					0,
@@ -885,6 +968,8 @@ export function MemoryPulsePane({
 				group.rotation.x = reduceMotion ? 0.18 : Math.sin(t * 0.06) * 0.06 + 0.18;
 				core.scale.setScalar(reduceMotion ? 1 : 1 + Math.sin(t * 1.25) * 0.03 * workPulse);
 				ring.rotation.z = reduceMotion ? 0 : t * 0.18;
+				memoryMassGroup.rotation.y = reduceMotion ? 0 : Math.sin(t * 0.032) * 0.04;
+				memoryMassGroup.rotation.z = reduceMotion ? 0 : Math.cos(t * 0.028) * 0.025;
 				cortexGroup.rotation.z = reduceMotion ? 0 : Math.sin(t * 0.052) * 0.018;
 				cortexGroup.rotation.y = reduceMotion ? 0 : Math.cos(t * 0.04) * 0.028;
 				scaffoldGroup.rotation.z = reduceMotion ? 0 : Math.sin(t * 0.045) * 0.018;
@@ -900,6 +985,16 @@ export function MemoryPulsePane({
 					entry.material.opacity = 0.025 + queueLift * 0.04 + wave * 0.035 + burstLift;
 					entry.signal.scale.setScalar(reduceMotion ? 1 : 1 + wave * 0.1 + dataBurst * 0.16);
 					entry.signal.rotation.z = reduceMotion ? index * 0.2 : t * (0.08 + index * 0.018);
+				}
+				if (memoryMassPointMaterial) {
+					memoryMassPointMaterial.opacity = reduceMotion
+						? 0.13
+						: 0.11 + Math.sin(t * 0.48) * 0.025 + dataBurst * 0.06 + activeWork / 1800;
+				}
+				for (const [index, material] of memoryMassLinkMaterials.entries()) {
+					material.opacity = reduceMotion
+						? 0.01
+						: 0.006 + (Math.sin(t * 0.62 + index * 1.6) + 1) * 0.011 + dataBurst * 0.018;
 				}
 
 				for (const { halo, haloMaterial, intensity, node, nodeMaterial, phase } of nodePulses) {
@@ -971,6 +1066,7 @@ export function MemoryPulsePane({
 
 	const hasMemory = model.nodes.length > 0;
 	const liveLabel = activeWork > 0 ? "active" : "idle";
+	const { fieldLinks, fieldNodes } = getMemoryFieldCounts(model);
 
 	return (
 		<section
@@ -1015,9 +1111,8 @@ export function MemoryPulsePane({
 				<div>
 					<MonoCaption>{mask(workspaceId)}</MonoCaption>
 					<Caption as="p" className="mt-1 max-w-[34rem]">
-						{model.totalConclusions.toLocaleString()} conclusions;{" "}
-						{model.scaffoldEdges.length.toLocaleString()} synapses;{" "}
-						{model.totalSessions.toLocaleString()} traces.
+						{fieldNodes.toLocaleString()} field nodes; {fieldLinks.toLocaleString()} shimmer links;{" "}
+						{model.totalConclusions.toLocaleString()} conclusions.
 					</Caption>
 				</div>
 				<div className="hidden items-center gap-2 sm:flex">
