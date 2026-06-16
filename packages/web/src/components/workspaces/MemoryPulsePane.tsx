@@ -147,6 +147,13 @@ export function MemoryPulsePane({
 			}),
 		[activeWork, conclusionPage?.total, conclusions, peerPage?.items],
 	);
+	const modelRef = useRef(model);
+	const updateSceneRef = useRef<((nextModel: MemoryPulseModel) => void) | null>(null);
+
+	useEffect(() => {
+		modelRef.current = model;
+		updateSceneRef.current?.(model);
+	}, [model]);
 
 	useEffect(() => {
 		const canvas = canvasRef.current;
@@ -183,6 +190,8 @@ export function MemoryPulsePane({
 
 			const group = new THREE.Group();
 			scene.add(group);
+			const nodeGroup = new THREE.Group();
+			group.add(nodeGroup);
 			const scaffoldGroup = new THREE.Group();
 			group.add(scaffoldGroup);
 			const activeGroup = new THREE.Group();
@@ -195,70 +204,6 @@ export function MemoryPulsePane({
 			const key = new THREE.PointLight(new THREE.Color(accent), 3.2, 9);
 			key.position.set(1.7, 2.1, 2.5);
 			scene.add(key);
-
-			const nodeMap = new Map<string, Vector3>();
-			const nodeTotal = Math.max(model.nodes.length, 1);
-			const goldenAngle = Math.PI * (3 - Math.sqrt(5));
-			model.nodes.forEach((node, index) => {
-				const progress = nodeTotal === 1 ? 0.5 : index / (nodeTotal - 1);
-				const y = 1 - progress * 2;
-				const shell = Math.sqrt(Math.max(0, 1 - y * y));
-				const angle = index * goldenAngle;
-				const position = new THREE.Vector3(
-					Math.cos(angle) * shell * 1.82,
-					y * 0.92,
-					Math.sin(angle) * shell * 0.82,
-				);
-				nodeMap.set(node.id, position);
-
-				const size = 0.032 + Math.min(node.count, 42) * 0.0016;
-				const orb = new THREE.Mesh(
-					new THREE.SphereGeometry(size, 24, 16),
-					new THREE.MeshStandardMaterial({
-						color: new THREE.Color(ink),
-						emissive: new THREE.Color(accent),
-						emissiveIntensity: 0.08 + Math.min(node.count, 60) / 150,
-						roughness: 0.48,
-						metalness: 0.18,
-					}),
-				);
-				orb.position.copy(position);
-				group.add(orb);
-
-				const halo = new THREE.Mesh(
-					new THREE.SphereGeometry(size * 2.35, 24, 16),
-					new THREE.MeshBasicMaterial({
-						color: new THREE.Color(accent),
-						transparent: true,
-						opacity: 0.045 + Math.min(node.count, 50) / 1000,
-						depthWrite: false,
-					}),
-				);
-				halo.position.copy(position);
-				group.add(halo);
-			});
-
-			const scaffoldPositions: number[] = [];
-			for (const edge of model.scaffoldEdges) {
-				const from = nodeMap.get(edge.from);
-				const to = nodeMap.get(edge.to);
-				if (!from || !to) continue;
-				scaffoldPositions.push(from.x, from.y, from.z, to.x, to.y, to.z);
-			}
-			if (scaffoldPositions.length > 0) {
-				const geometry = new THREE.BufferGeometry();
-				geometry.setAttribute("position", new THREE.Float32BufferAttribute(scaffoldPositions, 3));
-				const scaffold = new THREE.LineSegments(
-					geometry,
-					new THREE.LineBasicMaterial({
-						color: new THREE.Color(dim),
-						transparent: true,
-						opacity: 0.078,
-						depthWrite: false,
-					}),
-				);
-				scaffoldGroup.add(scaffold);
-			}
 
 			const core = new THREE.Mesh(
 				new THREE.SphereGeometry(0.18, 40, 24),
@@ -285,61 +230,185 @@ export function MemoryPulsePane({
 			ring.rotation.x = Math.PI / 2.15;
 			group.add(ring);
 
-			const curves: Array<{ curve: CatmullRomCurve3; speed: number; strength: number }> = [];
-			for (const [edgeIndex, edge] of model.edges.entries()) {
-				const from = nodeMap.get(edge.from);
-				const to = nodeMap.get(edge.to);
-				if (!from || !to) continue;
-				const lift = 0.24 + Math.min(edge.count, 24) * 0.012;
-				const mid =
-					edge.from === edge.to
-						? from
-								.clone()
-								.add(
-									new THREE.Vector3(Math.cos(edgeIndex) * 0.34, Math.sin(edgeIndex) * 0.18, 0.46),
-								)
-						: from.clone().lerp(to, 0.5);
-				mid.z += lift + Math.sin(edge.recentness) * 0.1;
-				mid.y += Math.cos(edgeIndex * 0.7) * 0.12;
-				const curve = new THREE.CatmullRomCurve3([from, mid, to], false, "centripetal");
-				const strength = Math.min(edge.count, 28) / 28;
-				curves.push({
-					curve,
-					speed: 0.024 + Math.min(edge.count, 24) * 0.0018,
-					strength,
+			let graphSignature = "";
+			let particles: Array<{
+				curve: CatmullRomCurve3;
+				particle: Mesh;
+				offset: number;
+				speed: number;
+			}> = [];
+
+			const disposeTree = (root: Object3D) => {
+				const disposedMaterials = new Set<unknown>();
+				root.traverse((object: Object3D) => {
+					const mesh = object as Mesh;
+					mesh.geometry?.dispose();
+					const material = mesh.material;
+					if (Array.isArray(material)) {
+						for (const item of material) {
+							if (!disposedMaterials.has(item)) {
+								item.dispose();
+								disposedMaterials.add(item);
+							}
+						}
+					} else if (material && !disposedMaterials.has(material)) {
+						material.dispose();
+						disposedMaterials.add(material);
+					}
+				});
+			};
+
+			const clearGraphGroup = (target: Object3D) => {
+				disposeTree(target);
+				target.clear();
+			};
+
+			const getGraphSignature = (nextModel: MemoryPulseModel) =>
+				JSON.stringify({
+					nodes: nextModel.nodes.map((node) => [node.id, node.count]),
+					edges: nextModel.edges.map((edge) => [edge.key, edge.count, edge.recentness]),
 				});
 
-				const tube = new THREE.Mesh(
-					new THREE.TubeGeometry(curve, 36, 0.0022 + Math.min(edge.count, 22) * 0.00055, 6, false),
-					new THREE.MeshBasicMaterial({
-						color: new THREE.Color(edge.from === edge.to ? dim : accent),
-						transparent: true,
-						opacity: 0.2 + Math.min(edge.count, 20) * 0.015,
-						depthWrite: false,
-					}),
-				);
-				activeGroup.add(tube);
-			}
+			const updateGraph = (nextModel: MemoryPulseModel) => {
+				const nextSignature = getGraphSignature(nextModel);
+				if (nextSignature === graphSignature) return;
+				graphSignature = nextSignature;
+				particles = [];
+				clearGraphGroup(nodeGroup);
+				clearGraphGroup(scaffoldGroup);
+				clearGraphGroup(activeGroup);
+				clearGraphGroup(particleGroup);
 
-			const particleMaterial = new THREE.MeshBasicMaterial({
-				color: new THREE.Color(accent),
-				transparent: true,
-				opacity: 0.82,
-			});
-			const particleCount = curves.length === 0 ? 0 : Math.min(Math.max(curves.length * 2, 18), 96);
-			const particles = Array.from({ length: particleCount }, (_, index) => {
-				const entry = curves[index % curves.length];
-				const particle = new THREE.Mesh(
-					new THREE.SphereGeometry(0.012 + entry.strength * 0.01, 12, 8),
-					particleMaterial,
-				);
-				particleGroup.add(particle);
-				return {
-					...entry,
-					particle,
-					offset: index / Math.max(particleCount, 1),
-				};
-			});
+				const nodeMap = new Map<string, Vector3>();
+				const nodeTotal = Math.max(nextModel.nodes.length, 1);
+				const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+				nextModel.nodes.forEach((node, index) => {
+					const progress = nodeTotal === 1 ? 0.5 : index / (nodeTotal - 1);
+					const y = 1 - progress * 2;
+					const shell = Math.sqrt(Math.max(0, 1 - y * y));
+					const angle = index * goldenAngle;
+					const position = new THREE.Vector3(
+						Math.cos(angle) * shell * 1.82,
+						y * 0.92,
+						Math.sin(angle) * shell * 0.82,
+					);
+					nodeMap.set(node.id, position);
+
+					const size = 0.032 + Math.min(node.count, 42) * 0.0016;
+					const orb = new THREE.Mesh(
+						new THREE.SphereGeometry(size, 24, 16),
+						new THREE.MeshStandardMaterial({
+							color: new THREE.Color(ink),
+							emissive: new THREE.Color(accent),
+							emissiveIntensity: 0.08 + Math.min(node.count, 60) / 150,
+							roughness: 0.48,
+							metalness: 0.18,
+						}),
+					);
+					orb.position.copy(position);
+					nodeGroup.add(orb);
+
+					const halo = new THREE.Mesh(
+						new THREE.SphereGeometry(size * 2.35, 24, 16),
+						new THREE.MeshBasicMaterial({
+							color: new THREE.Color(accent),
+							transparent: true,
+							opacity: 0.045 + Math.min(node.count, 50) / 1000,
+							depthWrite: false,
+						}),
+					);
+					halo.position.copy(position);
+					nodeGroup.add(halo);
+				});
+
+				const scaffoldPositions: number[] = [];
+				for (const edge of nextModel.scaffoldEdges) {
+					const from = nodeMap.get(edge.from);
+					const to = nodeMap.get(edge.to);
+					if (!from || !to) continue;
+					scaffoldPositions.push(from.x, from.y, from.z, to.x, to.y, to.z);
+				}
+				if (scaffoldPositions.length > 0) {
+					const geometry = new THREE.BufferGeometry();
+					geometry.setAttribute("position", new THREE.Float32BufferAttribute(scaffoldPositions, 3));
+					const scaffold = new THREE.LineSegments(
+						geometry,
+						new THREE.LineBasicMaterial({
+							color: new THREE.Color(dim),
+							transparent: true,
+							opacity: 0.078,
+							depthWrite: false,
+						}),
+					);
+					scaffoldGroup.add(scaffold);
+				}
+
+				const curves: Array<{ curve: CatmullRomCurve3; speed: number; strength: number }> = [];
+				for (const [edgeIndex, edge] of nextModel.edges.entries()) {
+					const from = nodeMap.get(edge.from);
+					const to = nodeMap.get(edge.to);
+					if (!from || !to) continue;
+					const lift = 0.24 + Math.min(edge.count, 24) * 0.012;
+					const mid =
+						edge.from === edge.to
+							? from
+									.clone()
+									.add(
+										new THREE.Vector3(Math.cos(edgeIndex) * 0.34, Math.sin(edgeIndex) * 0.18, 0.46),
+									)
+							: from.clone().lerp(to, 0.5);
+					mid.z += lift + Math.sin(edge.recentness) * 0.1;
+					mid.y += Math.cos(edgeIndex * 0.7) * 0.12;
+					const curve = new THREE.CatmullRomCurve3([from, mid, to], false, "centripetal");
+					const strength = Math.min(edge.count, 28) / 28;
+					curves.push({
+						curve,
+						speed: 0.024 + Math.min(edge.count, 24) * 0.0018,
+						strength,
+					});
+
+					const tube = new THREE.Mesh(
+						new THREE.TubeGeometry(
+							curve,
+							36,
+							0.0022 + Math.min(edge.count, 22) * 0.00055,
+							6,
+							false,
+						),
+						new THREE.MeshBasicMaterial({
+							color: new THREE.Color(edge.from === edge.to ? dim : accent),
+							transparent: true,
+							opacity: 0.2 + Math.min(edge.count, 20) * 0.015,
+							depthWrite: false,
+						}),
+					);
+					activeGroup.add(tube);
+				}
+
+				const particleMaterial = new THREE.MeshBasicMaterial({
+					color: new THREE.Color(accent),
+					transparent: true,
+					opacity: 0.82,
+				});
+				const particleCount =
+					curves.length === 0 ? 0 : Math.min(Math.max(curves.length * 2, 18), 96);
+				particles = Array.from({ length: particleCount }, (_, index) => {
+					const entry = curves[index % curves.length];
+					const particle = new THREE.Mesh(
+						new THREE.SphereGeometry(0.012 + entry.strength * 0.01, 12, 8),
+						particleMaterial,
+					);
+					particleGroup.add(particle);
+					return {
+						curve: entry.curve,
+						particle,
+						offset: index / Math.max(particleCount, 1),
+						speed: entry.speed,
+					};
+				});
+
+				if (reduceMotion) renderer.render(scene, camera);
+			};
 
 			const resize = () => {
 				const parent = activeCanvas.parentElement;
@@ -353,12 +422,16 @@ export function MemoryPulsePane({
 			if (activeCanvas.parentElement) observer.observe(activeCanvas.parentElement);
 			resize();
 
+			updateSceneRef.current = updateGraph;
+			updateGraph(modelRef.current);
+
 			let frame = 0;
+			let animationFrame = 0;
 			const animate = () => {
 				if (disposed) return;
 				frame += 1;
 				const t = frame / 60;
-				const workPulse = 1 + Math.min(model.activeWork, 8) * 0.04;
+				const workPulse = 1 + Math.min(modelRef.current.activeWork, 8) * 0.04;
 				group.rotation.y = reduceMotion ? -0.34 : Math.sin(t * 0.16) * 0.24 - 0.34;
 				group.rotation.x = reduceMotion ? 0.18 : Math.sin(t * 0.13) * 0.08 + 0.18;
 				core.scale.setScalar(reduceMotion ? 1 : 1 + Math.sin(t * 2.4) * 0.035 * workPulse);
@@ -373,22 +446,15 @@ export function MemoryPulsePane({
 				}
 
 				renderer.render(scene, camera);
-				if (!reduceMotion) requestAnimationFrame(animate);
+				if (!reduceMotion) animationFrame = requestAnimationFrame(animate);
 			};
 			animate();
 
 			cleanup = () => {
+				updateSceneRef.current = null;
+				if (animationFrame) cancelAnimationFrame(animationFrame);
 				observer.disconnect();
-				scene.traverse((object: Object3D) => {
-					const mesh = object as Mesh;
-					mesh.geometry?.dispose();
-					const material = mesh.material;
-					if (Array.isArray(material)) {
-						for (const item of material) item.dispose();
-					} else {
-						material?.dispose();
-					}
-				});
+				disposeTree(scene);
 				renderer.dispose();
 			};
 		}
@@ -399,7 +465,7 @@ export function MemoryPulsePane({
 			disposed = true;
 			cleanup?.();
 		};
-	}, [model]);
+	}, []);
 
 	const hasMemory = model.nodes.length > 0;
 	const liveLabel = activeWork > 0 ? "active" : "idle";
