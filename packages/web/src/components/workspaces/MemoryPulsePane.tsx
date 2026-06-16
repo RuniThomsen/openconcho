@@ -280,6 +280,8 @@ export function MemoryPulsePane({
 			scene.add(group);
 			const nodeGroup = new THREE.Group();
 			group.add(nodeGroup);
+			const cortexGroup = new THREE.Group();
+			group.add(cortexGroup);
 			const scaffoldGroup = new THREE.Group();
 			group.add(scaffoldGroup);
 			const activeGroup = new THREE.Group();
@@ -367,6 +369,11 @@ export function MemoryPulsePane({
 				phase: number;
 				strength: number;
 			}> = [];
+			let cortexMaterials: Array<{
+				material: LineBasicMaterial;
+				phase: number;
+				strength: number;
+			}> = [];
 			let scaffoldMaterials: LineBasicMaterial[] = [];
 			let wakeMaterials: LineBasicMaterial[] = [];
 			let particleMaterial: MeshBasicMaterial | null = null;
@@ -416,10 +423,12 @@ export function MemoryPulsePane({
 				nodePulses = [];
 				dimensionPulses = [];
 				activeMaterials = [];
+				cortexMaterials = [];
 				scaffoldMaterials = [];
 				wakeMaterials = [];
 				particleMaterial = null;
 				clearGraphGroup(nodeGroup);
+				clearGraphGroup(cortexGroup);
 				clearGraphGroup(scaffoldGroup);
 				clearGraphGroup(activeGroup);
 				clearGraphGroup(wakeGroup);
@@ -430,14 +439,16 @@ export function MemoryPulsePane({
 				const nodeTotal = Math.max(nextModel.nodes.length, 1);
 				const goldenAngle = Math.PI * (3 - Math.sqrt(5));
 				nextModel.nodes.forEach((node, index) => {
-					const progress = nodeTotal === 1 ? 0.5 : index / (nodeTotal - 1);
-					const y = 1 - progress * 2;
-					const shell = Math.sqrt(Math.max(0, 1 - y * y));
-					const angle = index * goldenAngle;
+					const hemisphere = index % 2 === 0 ? -1 : 1;
+					const hemisphereIndex = Math.floor(index / 2);
+					const hemisphereTotal = Math.max(Math.ceil(nodeTotal / 2), 1);
+					const progress = hemisphereTotal === 1 ? 0.5 : hemisphereIndex / (hemisphereTotal - 1);
+					const foldAngle = progress * Math.PI * 1.16 - Math.PI * 0.58;
+					const ripple = Math.sin(index * 1.73) * 0.13;
 					const position = new THREE.Vector3(
-						Math.cos(angle) * shell * 1.82,
-						y * 0.92,
-						Math.sin(angle) * shell * 0.82,
+						hemisphere * (0.28 + Math.cos(foldAngle) * 0.78 + ripple * 0.25),
+						Math.sin(foldAngle) * 0.78 + Math.sin(index * 0.91) * 0.08,
+						Math.sin(index * goldenAngle) * 0.42 + Math.cos(foldAngle * 2.1) * 0.12,
 					);
 					nodeMap.set(node.id, position);
 
@@ -473,6 +484,34 @@ export function MemoryPulsePane({
 					});
 				});
 
+				const cortexEdges = nextModel.scaffoldEdges.slice(
+					0,
+					Math.min(nextModel.scaffoldEdges.length, 96),
+				);
+				for (const [edgeIndex, edge] of cortexEdges.entries()) {
+					const from = nodeMap.get(edge.from);
+					const to = nodeMap.get(edge.to);
+					if (!from || !to) continue;
+					const midpoint = from.clone().lerp(to, 0.5);
+					midpoint.z += 0.12 + Math.sin(edgeIndex * 0.8) * 0.1;
+					midpoint.y += Math.cos(edgeIndex * 0.57) * 0.08;
+					const curve = new THREE.CatmullRomCurve3([from, midpoint, to], false, "centripetal");
+					const points = curve.getPoints(8);
+					const geometry = new THREE.BufferGeometry().setFromPoints(points);
+					const material = new THREE.LineBasicMaterial({
+						color: new THREE.Color(accent),
+						transparent: true,
+						opacity: 0.045,
+						depthWrite: false,
+					});
+					cortexMaterials.push({
+						material,
+						phase: edgeIndex * 0.41,
+						strength: 0.35 + (edgeIndex % 7) * 0.08,
+					});
+					cortexGroup.add(new THREE.Line(geometry, material));
+				}
+
 				const scaffoldBuckets = Array.from({ length: 5 }, () => [] as number[]);
 				for (const [edgeIndex, edge] of nextModel.scaffoldEdges.entries()) {
 					const from = nodeMap.get(edge.from);
@@ -488,7 +527,7 @@ export function MemoryPulsePane({
 					const material = new THREE.LineBasicMaterial({
 						color: new THREE.Color(dim),
 						transparent: true,
-						opacity: 0.052 + bucketIndex * 0.006,
+						opacity: 0.026 + bucketIndex * 0.004,
 						depthWrite: false,
 					});
 					scaffoldMaterials.push(material);
@@ -640,10 +679,11 @@ export function MemoryPulsePane({
 						: Math.min(Math.max(Math.ceil(Math.log10(nextModel.totalWork + 1) * 2), 5), 14);
 				const workVertices = Array.from({ length: workVertexCount }, (_, index) => {
 					const progress = index / Math.max(workVertexCount - 1, 1);
+					const angle = progress * Math.PI * 1.35;
 					const position = new THREE.Vector3(
-						2.16,
-						progress * 1.72 - 0.86,
-						0.54 + Math.sin(progress * Math.PI) * 0.18,
+						1.62 + Math.sin(angle) * 0.32,
+						progress * 1.02 - 0.52 + Math.sin(angle * 2.0) * 0.06,
+						0.46 + Math.cos(angle) * 0.2,
 					);
 					addGraphVertex(position, 0.014 + progress * 0.01, accent, 0.28 + progress * 0.24);
 					return position;
@@ -845,7 +885,9 @@ export function MemoryPulsePane({
 				group.rotation.x = reduceMotion ? 0.18 : Math.sin(t * 0.06) * 0.06 + 0.18;
 				core.scale.setScalar(reduceMotion ? 1 : 1 + Math.sin(t * 1.25) * 0.03 * workPulse);
 				ring.rotation.z = reduceMotion ? 0 : t * 0.18;
-				scaffoldGroup.rotation.z = reduceMotion ? 0 : Math.sin(t * 0.045) * 0.025;
+				cortexGroup.rotation.z = reduceMotion ? 0 : Math.sin(t * 0.052) * 0.018;
+				cortexGroup.rotation.y = reduceMotion ? 0 : Math.cos(t * 0.04) * 0.028;
+				scaffoldGroup.rotation.z = reduceMotion ? 0 : Math.sin(t * 0.045) * 0.018;
 				activeGroup.rotation.z = reduceMotion ? 0 : Math.cos(t * 0.055) * 0.02;
 				wakeGroup.rotation.z = reduceMotion ? 0 : Math.sin(t * 0.06) * 0.018;
 				dimensionGroup.rotation.y = reduceMotion ? 0 : Math.sin(t * 0.04) * 0.045;
@@ -871,8 +913,12 @@ export function MemoryPulsePane({
 
 				for (const [index, material] of scaffoldMaterials.entries()) {
 					material.opacity = reduceMotion
-						? 0.062
-						: 0.04 + (Math.sin(t * 0.38 + index * 1.35) + 1) * 0.026;
+						? 0.034
+						: 0.018 + (Math.sin(t * 0.38 + index * 1.35) + 1) * 0.018;
+				}
+				for (const { material, phase, strength } of cortexMaterials) {
+					const synapse = reduceMotion ? 0 : (Math.sin(t * 0.95 + phase) + 1) / 2;
+					material.opacity = 0.022 + synapse * 0.055 * strength + dataBurst * 0.035;
 				}
 				for (const { baseOpacity, material, phase, strength } of activeMaterials) {
 					const edgePulse = reduceMotion ? 0 : (Math.sin(t * 1.05 + phase) + 1) / 2;
@@ -952,14 +998,14 @@ export function MemoryPulsePane({
 					<div className="min-w-0">
 						<SectionHeading className="mb-0 leading-none">Memory Pulse</SectionHeading>
 						<Caption as="p" className="mt-1">
-							{hasMemory ? "Observer field" : isLoading ? "Warming field" : "Quiet field"}
+							{hasMemory ? "Neural field" : isLoading ? "Warming field" : "Quiet field"}
 						</Caption>
 					</div>
 				</div>
 
 				<div className="hidden items-center gap-2 self-end sm:flex sm:self-auto">
-					<PulseChip label="peers" value={model.nodes.length} />
-					<PulseChip label="sessions" value={model.totalSessions} />
+					<PulseChip label="nodes" value={model.nodes.length} />
+					<PulseChip label="traces" value={model.totalSessions} />
 					<PulseChip label="hooks" value={model.totalWebhooks} />
 					<PulseChip label={liveLabel} value={activeWork} accent={activeWork > 0} />
 				</div>
@@ -970,15 +1016,15 @@ export function MemoryPulsePane({
 					<MonoCaption>{mask(workspaceId)}</MonoCaption>
 					<Caption as="p" className="mt-1 max-w-[34rem]">
 						{model.totalConclusions.toLocaleString()} conclusions;{" "}
-						{model.scaffoldEdges.length.toLocaleString()} peer links;{" "}
-						{model.totalSessions.toLocaleString()} session threads.
+						{model.scaffoldEdges.length.toLocaleString()} synapses;{" "}
+						{model.totalSessions.toLocaleString()} traces.
 					</Caption>
 				</div>
 				<div className="hidden items-center gap-2 sm:flex">
 					<Activity className="h-3.5 w-3.5" style={{ color: "var(--accent)" }} strokeWidth={1.8} />
 					<MonoCaption>
-						{model.edges.length}/{model.scaffoldEdges.length} links ·{" "}
-						{model.totalWork.toLocaleString()} work
+						{model.edges.length}/{model.scaffoldEdges.length} signals ·{" "}
+						{model.totalWork.toLocaleString()} impulses
 					</MonoCaption>
 				</div>
 			</div>
