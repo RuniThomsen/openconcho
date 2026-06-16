@@ -21,6 +21,7 @@ import { JsonViewer } from "@/components/shared/JsonViewer";
 import { Skeleton } from "@/components/shared/Skeleton";
 import { Button } from "@/components/ui/button";
 import { Body, Caption, PageTitle, SectionHeading } from "@/components/ui/typography";
+import { MemoryPulsePane } from "@/components/workspaces/MemoryPulsePane";
 import { ScheduleDreamModal } from "@/components/workspaces/ScheduleDreamModal";
 import { useDemo } from "@/hooks/useDemo";
 import { useMetadata } from "@/hooks/useMetadata";
@@ -84,16 +85,16 @@ export function WorkspaceDetail() {
 		<div className="page-container page-container--wide">
 			<motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}>
 				<Breadcrumb />
-				<div className="flex items-start justify-between gap-4 mb-1">
+				<div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:gap-4 mb-1">
 					<div className="flex items-center gap-2 min-w-0">
 						<Boxes
 							className="w-5 h-5 flex-shrink-0"
 							style={{ color: "var(--accent)" }}
 							strokeWidth={1.5}
 						/>
-						<PageTitle className="font-mono break-all">{mask(workspaceId)}</PageTitle>
+						<PageTitle className="font-mono break-words">{mask(workspaceId)}</PageTitle>
 					</div>
-					<div className="flex items-center gap-2 flex-shrink-0">
+					<div className="flex flex-wrap items-center gap-2 flex-shrink-0">
 						<Button variant="accent" size="sm" onClick={() => setDreamOpen(true)}>
 							<Zap className="w-3.5 h-3.5" strokeWidth={2} />
 							Schedule Dream
@@ -113,6 +114,8 @@ export function WorkspaceDetail() {
 
 				{!isLoading && workspace && (
 					<div className="space-y-4">
+						<MemoryPulsePane workspaceId={workspaceId} queue={queue} />
+
 						{/* Nav cards */}
 						<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
 							{NAV_SECTIONS.map((s, i) => {
