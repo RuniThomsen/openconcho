@@ -305,6 +305,8 @@ export function MemoryPulsePane({
 			const ink = rootStyle.getPropertyValue("--text-1").trim() || "#111214";
 			const dim = rootStyle.getPropertyValue("--text-3").trim() || "#6f747d";
 			const bg = rootStyle.getPropertyValue("--bg-2").trim() || "#fffdf8";
+			const peerBronze = rootStyle.getPropertyValue("--peer-bronze").trim() || "#b8783f";
+			const peerBronzeGlow = rootStyle.getPropertyValue("--peer-bronze-glow").trim() || "#f0b36d";
 			const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 			const scene = new THREE.Scene();
@@ -522,11 +524,11 @@ export function MemoryPulsePane({
 					const size = 0.032 + Math.min(node.count, 42) * 0.0016;
 					const intensity = Math.min(node.count / 60, 1);
 					const nodeMaterial = new THREE.MeshStandardMaterial({
-						color: new THREE.Color(ink),
-						emissive: new THREE.Color(accent),
-						emissiveIntensity: 0.08 + intensity * 0.4,
-						roughness: 0.48,
-						metalness: 0.18,
+						color: new THREE.Color(peerBronze),
+						emissive: new THREE.Color(peerBronzeGlow),
+						emissiveIntensity: 0.12 + intensity * 0.52,
+						roughness: 0.34,
+						metalness: 0.42,
 					});
 					const orb = new THREE.Mesh(new THREE.SphereGeometry(size, 24, 16), nodeMaterial);
 					orb.position.copy(position);
@@ -535,9 +537,9 @@ export function MemoryPulsePane({
 						const anchorRing = new THREE.Mesh(
 							new THREE.TorusGeometry(size * 2.55, 0.0024, 6, 36),
 							new THREE.MeshBasicMaterial({
-								color: new THREE.Color(accent),
+								color: new THREE.Color(peerBronzeGlow),
 								transparent: true,
-								opacity: 0.16 + intensity * 0.08,
+								opacity: 0.2 + intensity * 0.14,
 								depthWrite: false,
 							}),
 						);
@@ -548,9 +550,9 @@ export function MemoryPulsePane({
 					}
 
 					const haloMaterial = new THREE.MeshBasicMaterial({
-						color: new THREE.Color(accent),
+						color: new THREE.Color(peerBronzeGlow),
 						transparent: true,
-						opacity: 0.045 + Math.min(node.count, 50) / 1000,
+						opacity: 0.055 + Math.min(node.count, 50) / 820,
 						depthWrite: false,
 					});
 					const halo = new THREE.Mesh(new THREE.SphereGeometry(size * 2.35, 24, 16), haloMaterial);
@@ -1100,7 +1102,7 @@ export function MemoryPulsePane({
 					node.scale.setScalar(scale);
 					halo.scale.setScalar(1.05 + pulse * 0.38 * (0.25 + intensity));
 					haloMaterial.opacity = 0.035 + intensity * 0.07 + pulse * 0.045 + dataBurst * 0.025;
-					nodeMaterial.emissiveIntensity = 0.08 + intensity * 0.4 + pulse * 0.14;
+					nodeMaterial.emissiveIntensity = 0.16 + intensity * 0.56 + pulse * 0.18;
 				}
 
 				for (const [index, material] of scaffoldMaterials.entries()) {
