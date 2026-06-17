@@ -8,6 +8,8 @@ import type {
 	MeshStandardMaterial,
 	Object3D,
 	PointsMaterial,
+	Sprite,
+	SpriteMaterial,
 	Vector3,
 } from "three";
 import { useConclusions, usePeers, useSessions, useWebhooks } from "@/api/queries";
@@ -348,6 +350,38 @@ export function MemoryPulsePane({
 			key.position.set(1.7, 2.1, 2.5);
 			scene.add(key);
 
+			const starCanvas = document.createElement("canvas");
+			starCanvas.width = 128;
+			starCanvas.height = 128;
+			const starContext = starCanvas.getContext("2d");
+			if (starContext) {
+				const center = 64;
+				const glow = starContext.createRadialGradient(center, center, 0, center, center, 58);
+				glow.addColorStop(0, "rgba(255,255,245,1)");
+				glow.addColorStop(0.18, "rgba(255,226,178,0.92)");
+				glow.addColorStop(0.45, "rgba(240,179,109,0.42)");
+				glow.addColorStop(1, "rgba(240,179,109,0)");
+				starContext.fillStyle = glow;
+				starContext.fillRect(0, 0, 128, 128);
+				starContext.strokeStyle = "rgba(255,244,216,0.92)";
+				starContext.lineWidth = 1.35;
+				starContext.beginPath();
+				starContext.moveTo(13, center);
+				starContext.lineTo(115, center);
+				starContext.moveTo(center, 13);
+				starContext.lineTo(center, 115);
+				starContext.stroke();
+				starContext.strokeStyle = "rgba(240,179,109,0.44)";
+				starContext.lineWidth = 1;
+				starContext.beginPath();
+				starContext.moveTo(29, 29);
+				starContext.lineTo(99, 99);
+				starContext.moveTo(99, 29);
+				starContext.lineTo(29, 99);
+				starContext.stroke();
+			}
+			const peerStarTexture = new THREE.CanvasTexture(starCanvas);
+
 			const core = new THREE.Mesh(
 				new THREE.SphereGeometry(0.18, 40, 24),
 				new THREE.MeshStandardMaterial({
@@ -405,6 +439,9 @@ export function MemoryPulsePane({
 				node: Mesh;
 				nodeMaterial: MeshStandardMaterial;
 				phase: number;
+				star: Sprite;
+				starBaseScale: number;
+				starMaterial: SpriteMaterial;
 			}> = [];
 			let dimensionPulses: Array<{
 				intensity: number;
@@ -524,11 +561,11 @@ export function MemoryPulsePane({
 					const size = 0.032 + Math.min(node.count, 42) * 0.0016;
 					const intensity = Math.min(node.count / 60, 1);
 					const nodeMaterial = new THREE.MeshStandardMaterial({
-						color: new THREE.Color(peerBronze),
+						color: new THREE.Color(peerBronze).lerp(new THREE.Color("#fff0cb"), 0.18),
 						emissive: new THREE.Color(peerBronzeGlow),
-						emissiveIntensity: 0.12 + intensity * 0.52,
-						roughness: 0.34,
-						metalness: 0.42,
+						emissiveIntensity: 0.28 + intensity * 0.7,
+						roughness: 0.22,
+						metalness: 0.55,
 					});
 					const orb = new THREE.Mesh(new THREE.SphereGeometry(size, 24, 16), nodeMaterial);
 					orb.position.copy(position);
@@ -539,8 +576,9 @@ export function MemoryPulsePane({
 							new THREE.MeshBasicMaterial({
 								color: new THREE.Color(peerBronzeGlow),
 								transparent: true,
-								opacity: 0.2 + intensity * 0.14,
+								opacity: 0.24 + intensity * 0.2,
 								depthWrite: false,
+								blending: THREE.AdditiveBlending,
 							}),
 						);
 						anchorRing.position.copy(position);
@@ -552,12 +590,26 @@ export function MemoryPulsePane({
 					const haloMaterial = new THREE.MeshBasicMaterial({
 						color: new THREE.Color(peerBronzeGlow),
 						transparent: true,
-						opacity: 0.055 + Math.min(node.count, 50) / 820,
+						opacity: 0.075 + Math.min(node.count, 50) / 640,
 						depthWrite: false,
+						blending: THREE.AdditiveBlending,
 					});
-					const halo = new THREE.Mesh(new THREE.SphereGeometry(size * 2.35, 24, 16), haloMaterial);
+					const halo = new THREE.Mesh(new THREE.SphereGeometry(size * 3.1, 24, 16), haloMaterial);
 					halo.position.copy(position);
 					nodeGroup.add(halo);
+					const starMaterial = new THREE.SpriteMaterial({
+						map: peerStarTexture,
+						color: new THREE.Color(peerBronzeGlow),
+						transparent: true,
+						opacity: 0.52 + intensity * 0.28,
+						depthWrite: false,
+						blending: THREE.AdditiveBlending,
+					});
+					const star = new THREE.Sprite(starMaterial);
+					star.position.copy(position);
+					const starBaseScale = size * (4.6 + intensity * 1.9);
+					star.scale.setScalar(starBaseScale);
+					nodeGroup.add(star);
 					nodePulses.push({
 						halo,
 						haloMaterial,
@@ -565,6 +617,9 @@ export function MemoryPulsePane({
 						node: orb,
 						nodeMaterial,
 						phase: index * 0.73,
+						star,
+						starBaseScale,
+						starMaterial,
 					});
 				});
 
@@ -1096,13 +1151,30 @@ export function MemoryPulsePane({
 						: 0.006 + (Math.sin(t * 0.62 + index * 1.6) + 1) * 0.011 + dataBurst * 0.018;
 				}
 
-				for (const { halo, haloMaterial, intensity, node, nodeMaterial, phase } of nodePulses) {
+				for (const {
+					halo,
+					haloMaterial,
+					intensity,
+					node,
+					nodeMaterial,
+					phase,
+					star,
+					starBaseScale,
+					starMaterial,
+				} of nodePulses) {
 					const pulse = reduceMotion ? 0 : (Math.sin(t * 0.9 + phase) + 1) / 2;
+					const twinkle = reduceMotion ? 0 : (Math.sin(t * 2.35 + phase * 1.7) + 1) / 2;
 					const scale = 1 + pulse * 0.1 * (0.35 + intensity) + dataBurst * 0.08;
 					node.scale.setScalar(scale);
-					halo.scale.setScalar(1.05 + pulse * 0.38 * (0.25 + intensity));
-					haloMaterial.opacity = 0.035 + intensity * 0.07 + pulse * 0.045 + dataBurst * 0.025;
-					nodeMaterial.emissiveIntensity = 0.16 + intensity * 0.56 + pulse * 0.18;
+					halo.scale.setScalar(1.18 + pulse * 0.52 * (0.35 + intensity) + twinkle * 0.08);
+					haloMaterial.opacity =
+						0.055 + intensity * 0.105 + pulse * 0.075 + twinkle * 0.035 + dataBurst * 0.04;
+					star.scale.setScalar(
+						starBaseScale * (1 + pulse * 0.32 + twinkle * 0.22 + dataBurst * 0.18),
+					);
+					starMaterial.opacity =
+						0.44 + intensity * 0.32 + pulse * 0.18 + twinkle * 0.2 + dataBurst * 0.12;
+					nodeMaterial.emissiveIntensity = 0.42 + intensity * 0.78 + pulse * 0.28 + twinkle * 0.18;
 				}
 
 				for (const [index, material] of scaffoldMaterials.entries()) {
@@ -1156,6 +1228,7 @@ export function MemoryPulsePane({
 				if (animationFrame) cancelAnimationFrame(animationFrame);
 				observer.disconnect();
 				disposeTree(scene);
+				peerStarTexture.dispose();
 				renderer.dispose();
 			};
 		}
