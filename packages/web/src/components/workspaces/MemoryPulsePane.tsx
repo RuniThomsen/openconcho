@@ -32,6 +32,20 @@ interface PulseNode {
 	count: number;
 }
 
+interface PulseSessionAnchor {
+	active: boolean;
+	id: string;
+	index: number;
+}
+
+interface PulseConclusionTrace {
+	from: string;
+	id: string;
+	recentness: number;
+	sessionId: string | null;
+	to: string;
+}
+
 interface PulseEdge {
 	key: string;
 	from: string;
@@ -57,6 +71,8 @@ export interface MemoryPulseModel {
 	nodes: PulseNode[];
 	edges: PulseEdge[];
 	scaffoldEdges: ScaffoldEdge[];
+	sessionAnchors: PulseSessionAnchor[];
+	conclusionTraces: PulseConclusionTrace[];
 	dimensions: PulseDimension[];
 	totalConclusions: number;
 	sampledConclusions: number;
@@ -92,7 +108,7 @@ export function buildMemoryPulseModel({
 }: {
 	peerIds: string[];
 	conclusions: Conclusion[];
-	sessions?: Array<{ is_active?: boolean | null }>;
+	sessions?: Array<{ id?: string; is_active?: boolean | null }>;
 	totalConclusions: number;
 	totalSessions?: number;
 	totalWebhooks?: number;
@@ -102,6 +118,7 @@ export function buildMemoryPulseModel({
 }): MemoryPulseModel {
 	const nodeCounts = new Map<string, number>();
 	const edgeCounts = new Map<string, PulseEdge>();
+	const conclusionTraces: PulseConclusionTrace[] = [];
 
 	for (const id of peerIds) {
 		if (id) nodeCounts.set(id, nodeCounts.get(id) ?? 0);
@@ -111,9 +128,17 @@ export function buildMemoryPulseModel({
 		const from = conclusion.observer_id;
 		const to = conclusion.observed_id;
 		if (!from || !to) return;
+		const recentness = conclusions.length - index;
 
 		nodeCounts.set(from, (nodeCounts.get(from) ?? 0) + 1);
 		nodeCounts.set(to, (nodeCounts.get(to) ?? 0) + 1);
+		conclusionTraces.push({
+			from,
+			id: conclusion.id,
+			recentness,
+			sessionId: conclusion.session_id ?? null,
+			to,
+		});
 
 		const key = `${from}→${to}`;
 		const current = edgeCounts.get(key);
@@ -122,7 +147,7 @@ export function buildMemoryPulseModel({
 			from,
 			to,
 			count: (current?.count ?? 0) + 1,
-			recentness: Math.max(current?.recentness ?? 0, conclusions.length - index),
+			recentness: Math.max(current?.recentness ?? 0, recentness),
 		});
 	});
 
@@ -146,6 +171,11 @@ export function buildMemoryPulseModel({
 		.sort((a, b) => b.count - a.count || b.recentness - a.recentness)
 		.slice(0, 56);
 	const activeSessions = sessions.filter((session) => session.is_active).length;
+	const sessionAnchors = sessions.slice(0, 48).map((session, index) => ({
+		active: Boolean(session.is_active),
+		id: session.id ?? `session-${index}`,
+		index,
+	}));
 	const dimensions: PulseDimension[] = [
 		{
 			key: "peers",
@@ -183,6 +213,8 @@ export function buildMemoryPulseModel({
 		nodes,
 		edges,
 		scaffoldEdges,
+		sessionAnchors,
+		conclusionTraces,
 		dimensions,
 		totalConclusions,
 		sampledConclusions: conclusions.length,
@@ -378,6 +410,12 @@ export function MemoryPulsePane({
 				material: MeshBasicMaterial;
 				phase: number;
 			}> = [];
+			let sessionPulses: Array<{
+				active: boolean;
+				marker: Mesh;
+				material: MeshBasicMaterial;
+				phase: number;
+			}> = [];
 			let activeMaterials: Array<{
 				baseOpacity: number;
 				material: MeshBasicMaterial;
@@ -424,6 +462,13 @@ export function MemoryPulsePane({
 				JSON.stringify({
 					nodes: nextModel.nodes.map((node) => [node.id, node.count]),
 					edges: nextModel.edges.map((edge) => [edge.key, edge.count, edge.recentness]),
+					sessions: nextModel.sessionAnchors.map((session) => [session.id, session.active]),
+					traces: nextModel.conclusionTraces.map((trace) => [
+						trace.id,
+						trace.from,
+						trace.to,
+						trace.sessionId,
+					]),
 					dimensions: nextModel.dimensions.map((dimension) => [
 						dimension.key,
 						dimension.value,
@@ -440,6 +485,7 @@ export function MemoryPulsePane({
 				particles = [];
 				nodePulses = [];
 				dimensionPulses = [];
+				sessionPulses = [];
 				activeMaterials = [];
 				memoryMassPointMaterial = null;
 				memoryMassLinkMaterials = [];
@@ -485,6 +531,21 @@ export function MemoryPulsePane({
 					const orb = new THREE.Mesh(new THREE.SphereGeometry(size, 24, 16), nodeMaterial);
 					orb.position.copy(position);
 					nodeGroup.add(orb);
+					if (index < 8) {
+						const anchorRing = new THREE.Mesh(
+							new THREE.TorusGeometry(size * 2.55, 0.0024, 6, 36),
+							new THREE.MeshBasicMaterial({
+								color: new THREE.Color(accent),
+								transparent: true,
+								opacity: 0.16 + intensity * 0.08,
+								depthWrite: false,
+							}),
+						);
+						anchorRing.position.copy(position);
+						anchorRing.rotation.x = Math.PI / 2.2;
+						anchorRing.rotation.y = index * 0.47;
+						nodeGroup.add(anchorRing);
+					}
 
 					const haloMaterial = new THREE.MeshBasicMaterial({
 						color: new THREE.Color(accent),
@@ -719,22 +780,39 @@ export function MemoryPulsePane({
 				};
 
 				const sessionVertexCount =
-					nextModel.totalSessions === 0
-						? 0
-						: Math.min(Math.max(Math.ceil(nextModel.totalSessions / 160), 10), 34);
+					nextModel.sessionAnchors.length > 0
+						? Math.min(nextModel.sessionAnchors.length, 36)
+						: nextModel.totalSessions === 0
+							? 0
+							: Math.min(Math.max(Math.ceil(nextModel.totalSessions / 160), 10), 34);
+				const sampledSessionAnchors = nextModel.sessionAnchors.slice(0, sessionVertexCount);
 				const sessionVertices = Array.from({ length: sessionVertexCount }, (_, index) => {
+					const sampledSession = sampledSessionAnchors[index];
+					const isActive = sampledSession?.active ?? index < nextModel.activeSessions;
 					const angle = (index / Math.max(sessionVertexCount, 1)) * Math.PI * 2;
 					const position = new THREE.Vector3(
 						Math.cos(angle) * 1.98,
 						0.78 + Math.sin(angle * 2.0) * 0.14,
 						Math.sin(angle) * 0.64 - 0.18,
 					);
-					addGraphVertex(
-						position,
-						index < nextModel.activeSessions ? 0.024 : 0.016,
-						index < nextModel.activeSessions ? accent : dim,
-						index < nextModel.activeSessions ? 0.62 : 0.38,
+					const sessionMaterial = new THREE.MeshBasicMaterial({
+						color: new THREE.Color(isActive ? accent : dim),
+						transparent: true,
+						opacity: isActive ? 0.72 : 0.42,
+						depthWrite: false,
+					});
+					const sessionMarker = new THREE.Mesh(
+						new THREE.SphereGeometry(isActive ? 0.026 : 0.017, 14, 10),
+						sessionMaterial,
 					);
+					sessionMarker.position.copy(position);
+					dimensionGroup.add(sessionMarker);
+					sessionPulses.push({
+						active: isActive,
+						marker: sessionMarker,
+						material: sessionMaterial,
+						phase: index * 0.52 + (sampledSession?.index ?? index) * 0.07,
+					});
 					return position;
 				});
 				const sessionEdges: number[] = [];
@@ -809,6 +887,10 @@ export function MemoryPulsePane({
 				addGraphEdges(ingressEdges, accent, 0.16);
 
 				const curves: Array<{ curve: CatmullRomCurve3; speed: number; strength: number }> = [];
+				const curveByKey = new Map<
+					string,
+					{ curve: CatmullRomCurve3; speed: number; strength: number }
+				>();
 				for (const [edgeIndex, edge] of nextModel.edges.entries()) {
 					const from = nodeMap.get(edge.from);
 					const to = nodeMap.get(edge.to);
@@ -848,6 +930,11 @@ export function MemoryPulsePane({
 					}
 					const strength = Math.min(edge.count, 28) / 28;
 					curves.push({
+						curve,
+						speed: 0.012 + Math.min(edge.count, 24) * 0.001,
+						strength,
+					});
+					curveByKey.set(edge.key, {
 						curve,
 						speed: 0.012 + Math.min(edge.count, 24) * 0.001,
 						strength,
@@ -917,10 +1004,19 @@ export function MemoryPulsePane({
 					opacity: 0.82,
 				});
 				particleMaterial = movingParticleMaterial;
-				const particleCount =
-					curves.length === 0 ? 0 : Math.min(Math.max(curves.length * 2, 18), 96);
-				particles = Array.from({ length: particleCount }, (_, index) => {
-					const entry = curves[index % curves.length];
+				const literalTraceEntries = nextModel.conclusionTraces
+					.map((trace) => curveByKey.get(`${trace.from}→${trace.to}`))
+					.filter((entry): entry is { curve: CatmullRomCurve3; speed: number; strength: number } =>
+						Boolean(entry),
+					);
+				const particleEntries =
+					literalTraceEntries.length > 0
+						? literalTraceEntries.slice(0, 120)
+						: Array.from(
+								{ length: curves.length === 0 ? 0 : Math.min(Math.max(curves.length * 2, 18), 96) },
+								(_, index) => curves[index % curves.length],
+							);
+				particles = particleEntries.map((entry, index) => {
 					const particle = new THREE.Mesh(
 						new THREE.SphereGeometry(0.012 + entry.strength * 0.01, 12, 8),
 						movingParticleMaterial,
@@ -929,8 +1025,8 @@ export function MemoryPulsePane({
 					return {
 						curve: entry.curve,
 						particle,
-						offset: index / Math.max(particleCount, 1),
-						speed: entry.speed,
+						offset: index / Math.max(particleEntries.length, 1),
+						speed: literalTraceEntries.length > 0 ? entry.speed * 0.78 : entry.speed,
 					};
 				});
 
@@ -1030,6 +1126,11 @@ export function MemoryPulsePane({
 					const pulse = reduceMotion ? 0 : (Math.sin(t * 0.82 + phase) + 1) / 2;
 					marker.scale.setScalar(1 + pulse * 0.16 * (0.4 + intensity));
 					material.opacity = 0.22 + intensity * 0.42 + pulse * 0.1;
+				}
+				for (const { active, marker, material, phase } of sessionPulses) {
+					const pulse = reduceMotion ? 0 : (Math.sin(t * 1.1 + phase) + 1) / 2;
+					marker.scale.setScalar(1 + pulse * (active ? 0.22 : 0.11) + dataBurst * 0.06);
+					material.opacity = active ? 0.58 + pulse * 0.24 : 0.32 + pulse * 0.14;
 				}
 				if (particleMaterial) {
 					particleMaterial.opacity = reduceMotion

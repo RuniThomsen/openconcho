@@ -7,6 +7,7 @@ function conclusion(id: string, observer: string, observed: string, index: numbe
 		content: `memory ${id}`,
 		observer_id: observer,
 		observed_id: observed,
+		session_id: `session-${index}`,
 		created_at: new Date(2026, 0, index + 1).toISOString(),
 	};
 }
@@ -20,7 +21,10 @@ describe("buildMemoryPulseModel", () => {
 				conclusion("c2", "abel", "runi", 2),
 				conclusion("c3", "runi", "josh", 3),
 			],
-			sessions: [{ is_active: true }, { is_active: false }],
+			sessions: [
+				{ id: "session-1", is_active: true },
+				{ id: "session-2", is_active: false },
+			],
 			totalConclusions: 42,
 			totalSessions: 9,
 			totalWebhooks: 2,
@@ -32,6 +36,15 @@ describe("buildMemoryPulseModel", () => {
 		expect(model.sampledConclusions).toBe(3);
 		expect(model.totalSessions).toBe(9);
 		expect(model.activeSessions).toBe(1);
+		expect(model.sessionAnchors).toEqual([
+			{ active: true, id: "session-1", index: 0 },
+			{ active: false, id: "session-2", index: 1 },
+		]);
+		expect(model.conclusionTraces).toEqual([
+			expect.objectContaining({ from: "abel", id: "c1", sessionId: "session-1", to: "runi" }),
+			expect.objectContaining({ from: "abel", id: "c2", sessionId: "session-2", to: "runi" }),
+			expect.objectContaining({ from: "runi", id: "c3", sessionId: "session-3", to: "josh" }),
+		]);
 		expect(model.totalWebhooks).toBe(2);
 		expect(model.activeWork).toBe(2);
 		expect(model.totalWork).toBe(120);
