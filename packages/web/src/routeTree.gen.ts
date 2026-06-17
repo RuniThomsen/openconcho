@@ -21,6 +21,7 @@ import { Route as WorkspacesWorkspaceIdWebhooksRouteImport } from './routes/work
 import { Route as WorkspacesWorkspaceIdSessionsRouteImport } from './routes/workspaces_.$workspaceId_.sessions'
 import { Route as WorkspacesWorkspaceIdQueueRouteImport } from './routes/workspaces_.$workspaceId_.queue'
 import { Route as WorkspacesWorkspaceIdPeersRouteImport } from './routes/workspaces_.$workspaceId_.peers'
+import { Route as WorkspacesWorkspaceIdMemoryRouteImport } from './routes/workspaces_.$workspaceId_.memory'
 import { Route as WorkspacesWorkspaceIdDreamsRouteImport } from './routes/workspaces_.$workspaceId_.dreams'
 import { Route as WorkspacesWorkspaceIdConclusionsRouteImport } from './routes/workspaces_.$workspaceId_.conclusions'
 import { Route as WorkspacesWorkspaceIdSessionsSessionIdRouteImport } from './routes/workspaces_.$workspaceId_.sessions_.$sessionId'
@@ -92,6 +93,12 @@ const WorkspacesWorkspaceIdPeersRoute =
     path: '/workspaces/$workspaceId/peers',
     getParentRoute: () => rootRouteImport,
   } as any)
+const WorkspacesWorkspaceIdMemoryRoute =
+  WorkspacesWorkspaceIdMemoryRouteImport.update({
+    id: '/workspaces_/$workspaceId_/memory',
+    path: '/workspaces/$workspaceId/memory',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const WorkspacesWorkspaceIdDreamsRoute =
   WorkspacesWorkspaceIdDreamsRouteImport.update({
     id: '/workspaces_/$workspaceId_/dreams',
@@ -140,6 +147,7 @@ export interface FileRoutesByFullPath {
   '/workspaces/$workspaceId': typeof WorkspacesWorkspaceIdRoute
   '/workspaces/$workspaceId/conclusions': typeof WorkspacesWorkspaceIdConclusionsRoute
   '/workspaces/$workspaceId/dreams': typeof WorkspacesWorkspaceIdDreamsRoute
+  '/workspaces/$workspaceId/memory': typeof WorkspacesWorkspaceIdMemoryRoute
   '/workspaces/$workspaceId/peers': typeof WorkspacesWorkspaceIdPeersRoute
   '/workspaces/$workspaceId/queue': typeof WorkspacesWorkspaceIdQueueRoute
   '/workspaces/$workspaceId/sessions': typeof WorkspacesWorkspaceIdSessionsRoute
@@ -160,6 +168,7 @@ export interface FileRoutesByTo {
   '/workspaces/$workspaceId': typeof WorkspacesWorkspaceIdRoute
   '/workspaces/$workspaceId/conclusions': typeof WorkspacesWorkspaceIdConclusionsRoute
   '/workspaces/$workspaceId/dreams': typeof WorkspacesWorkspaceIdDreamsRoute
+  '/workspaces/$workspaceId/memory': typeof WorkspacesWorkspaceIdMemoryRoute
   '/workspaces/$workspaceId/peers': typeof WorkspacesWorkspaceIdPeersRoute
   '/workspaces/$workspaceId/queue': typeof WorkspacesWorkspaceIdQueueRoute
   '/workspaces/$workspaceId/sessions': typeof WorkspacesWorkspaceIdSessionsRoute
@@ -181,6 +190,7 @@ export interface FileRoutesById {
   '/workspaces_/$workspaceId': typeof WorkspacesWorkspaceIdRoute
   '/workspaces_/$workspaceId_/conclusions': typeof WorkspacesWorkspaceIdConclusionsRoute
   '/workspaces_/$workspaceId_/dreams': typeof WorkspacesWorkspaceIdDreamsRoute
+  '/workspaces_/$workspaceId_/memory': typeof WorkspacesWorkspaceIdMemoryRoute
   '/workspaces_/$workspaceId_/peers': typeof WorkspacesWorkspaceIdPeersRoute
   '/workspaces_/$workspaceId_/queue': typeof WorkspacesWorkspaceIdQueueRoute
   '/workspaces_/$workspaceId_/sessions': typeof WorkspacesWorkspaceIdSessionsRoute
@@ -203,6 +213,7 @@ export interface FileRouteTypes {
     | '/workspaces/$workspaceId'
     | '/workspaces/$workspaceId/conclusions'
     | '/workspaces/$workspaceId/dreams'
+    | '/workspaces/$workspaceId/memory'
     | '/workspaces/$workspaceId/peers'
     | '/workspaces/$workspaceId/queue'
     | '/workspaces/$workspaceId/sessions'
@@ -223,6 +234,7 @@ export interface FileRouteTypes {
     | '/workspaces/$workspaceId'
     | '/workspaces/$workspaceId/conclusions'
     | '/workspaces/$workspaceId/dreams'
+    | '/workspaces/$workspaceId/memory'
     | '/workspaces/$workspaceId/peers'
     | '/workspaces/$workspaceId/queue'
     | '/workspaces/$workspaceId/sessions'
@@ -243,6 +255,7 @@ export interface FileRouteTypes {
     | '/workspaces_/$workspaceId'
     | '/workspaces_/$workspaceId_/conclusions'
     | '/workspaces_/$workspaceId_/dreams'
+    | '/workspaces_/$workspaceId_/memory'
     | '/workspaces_/$workspaceId_/peers'
     | '/workspaces_/$workspaceId_/queue'
     | '/workspaces_/$workspaceId_/sessions'
@@ -264,6 +277,7 @@ export interface RootRouteChildren {
   WorkspacesWorkspaceIdRoute: typeof WorkspacesWorkspaceIdRoute
   WorkspacesWorkspaceIdConclusionsRoute: typeof WorkspacesWorkspaceIdConclusionsRoute
   WorkspacesWorkspaceIdDreamsRoute: typeof WorkspacesWorkspaceIdDreamsRoute
+  WorkspacesWorkspaceIdMemoryRoute: typeof WorkspacesWorkspaceIdMemoryRoute
   WorkspacesWorkspaceIdPeersRoute: typeof WorkspacesWorkspaceIdPeersRoute
   WorkspacesWorkspaceIdQueueRoute: typeof WorkspacesWorkspaceIdQueueRoute
   WorkspacesWorkspaceIdSessionsRoute: typeof WorkspacesWorkspaceIdSessionsRoute
@@ -360,6 +374,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkspacesWorkspaceIdPeersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/workspaces_/$workspaceId_/memory': {
+      id: '/workspaces_/$workspaceId_/memory'
+      path: '/workspaces/$workspaceId/memory'
+      fullPath: '/workspaces/$workspaceId/memory'
+      preLoaderRoute: typeof WorkspacesWorkspaceIdMemoryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/workspaces_/$workspaceId_/dreams': {
       id: '/workspaces_/$workspaceId_/dreams'
       path: '/workspaces/$workspaceId/dreams'
@@ -416,6 +437,7 @@ const rootRouteChildren: RootRouteChildren = {
   WorkspacesWorkspaceIdRoute: WorkspacesWorkspaceIdRoute,
   WorkspacesWorkspaceIdConclusionsRoute: WorkspacesWorkspaceIdConclusionsRoute,
   WorkspacesWorkspaceIdDreamsRoute: WorkspacesWorkspaceIdDreamsRoute,
+  WorkspacesWorkspaceIdMemoryRoute: WorkspacesWorkspaceIdMemoryRoute,
   WorkspacesWorkspaceIdPeersRoute: WorkspacesWorkspaceIdPeersRoute,
   WorkspacesWorkspaceIdQueueRoute: WorkspacesWorkspaceIdQueueRoute,
   WorkspacesWorkspaceIdSessionsRoute: WorkspacesWorkspaceIdSessionsRoute,

@@ -1,4 +1,5 @@
-import { Activity, Radio } from "lucide-react";
+import { Link } from "@tanstack/react-router";
+import { Activity, Maximize2, Radio } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 import type {
 	CatmullRomCurve3,
@@ -229,9 +230,11 @@ export function buildMemoryPulseModel({
 }
 
 export function MemoryPulsePane({
+	variant = "pane",
 	workspaceId,
 	queue,
 }: {
+	variant?: "fullscreen" | "pane";
 	workspaceId: string;
 	queue?: QueuePulse | null;
 }) {
@@ -1241,37 +1244,53 @@ export function MemoryPulsePane({
 		};
 	}, []);
 
+	const isFullscreen = variant === "fullscreen";
 	const hasMemory = model.nodes.length > 0;
 	const liveLabel = activeWork > 0 ? "active" : "idle";
 	const { fieldLinks, fieldNodes } = getMemoryFieldCounts(model);
 
 	return (
 		<section
-			className="relative min-h-[320px] overflow-hidden rounded-xl"
+			className={`relative overflow-hidden ${isFullscreen ? "h-screen min-h-[620px]" : "min-h-[320px] rounded-xl"}`}
 			style={{
 				background:
 					"radial-gradient(circle at 50% 42%, var(--accent-subtle), transparent 42%), var(--bg-2)",
-				border: "1px solid var(--border)",
+				border: isFullscreen ? "0" : "1px solid var(--border)",
 			}}
 			aria-label="Memory pulse"
 			data-testid="memory-pulse-pane"
+			data-variant={variant}
 		>
-			<div className="absolute left-5 right-5 top-5 z-10 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+			<div
+				className={`absolute z-10 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between ${
+					isFullscreen
+						? "left-6 right-6 top-6 sm:left-8 sm:right-8 sm:top-8"
+						: "left-5 right-5 top-5"
+				}`}
+			>
 				<div className="flex items-center gap-2">
 					<div
-						className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+						className={`flex shrink-0 items-center justify-center rounded-lg ${
+							isFullscreen ? "h-10 w-10" : "h-8 w-8"
+						}`}
 						style={{
 							background: "var(--accent-dim)",
 							border: "1px solid var(--accent-border)",
 							color: "var(--accent-text)",
 						}}
 					>
-						<Radio className="h-4 w-4" strokeWidth={1.8} />
+						<Radio className={isFullscreen ? "h-5 w-5" : "h-4 w-4"} strokeWidth={1.8} />
 					</div>
 					<div className="min-w-0">
 						<SectionHeading className="mb-0 leading-none">Memory Pulse</SectionHeading>
 						<Caption as="p" className="mt-1">
-							{hasMemory ? "Neural field" : isLoading ? "Warming field" : "Quiet field"}
+							{hasMemory
+								? isFullscreen
+									? "Full neural field"
+									: "Neural field"
+								: isLoading
+									? "Warming field"
+									: "Quiet field"}
 						</Caption>
 					</div>
 				</div>
@@ -1281,13 +1300,33 @@ export function MemoryPulsePane({
 					<PulseChip label="traces" value={model.totalSessions} />
 					<PulseChip label="hooks" value={model.totalWebhooks} />
 					<PulseChip label={liveLabel} value={activeWork} accent={activeWork > 0} />
+					{!isFullscreen && (
+						<Link
+							to={"/workspaces/$workspaceId/memory" as never}
+							params={{ workspaceId } as never}
+							className="flex h-[50px] w-[50px] items-center justify-center rounded-lg transition-all hover:scale-[1.03]"
+							style={{
+								background: "var(--accent-dim)",
+								border: "1px solid var(--accent-border)",
+								color: "var(--accent-text)",
+								backdropFilter: "blur(12px)",
+							}}
+							aria-label="Open fullscreen memory pulse"
+						>
+							<Maximize2 className="h-4 w-4" strokeWidth={1.8} />
+						</Link>
+					)}
 				</div>
 			</div>
 
-			<div className="absolute inset-x-5 bottom-5 z-10 flex items-end justify-between gap-4">
+			<div
+				className={`absolute z-10 flex items-end justify-between gap-4 ${
+					isFullscreen ? "inset-x-6 bottom-6 sm:inset-x-8 sm:bottom-8" : "inset-x-5 bottom-5"
+				}`}
+			>
 				<div>
 					<MonoCaption>{mask(workspaceId)}</MonoCaption>
-					<Caption as="p" className="mt-1 max-w-[34rem]">
+					<Caption as="p" className={`mt-1 ${isFullscreen ? "max-w-[48rem]" : "max-w-[34rem]"}`}>
 						{fieldNodes.toLocaleString()} field nodes; {fieldLinks.toLocaleString()} shimmer links;{" "}
 						{model.totalConclusions.toLocaleString()} conclusions.
 					</Caption>
